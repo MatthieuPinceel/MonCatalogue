@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mon Dashboard — TCG · Lego · Steam</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎮</text></svg>" />
+  <link rel="stylesheet" href="css/style.css" />
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <!-- ========== SIDEBAR ========== -->
+  <nav class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">🎲</span>
+      <span class="logo-text">MonCatalogue</span>
+    </div>
+    <ul class="nav-links">
+      <li><a href="#" class="nav-link active" data-page="dashboard"><span class="icon">🏠</span>Dashboard</a></li>
+      <li><a href="#" class="nav-link" data-page="promos"><span class="icon">🏷️</span>Promos</a></li>
+      <li><a href="#" class="nav-link" data-page="steam"><span class="icon">🎮</span>Steam</a></li>
+      <li><a href="#" class="nav-link" data-page="tcg"><span class="icon">🃏</span>TCG</a></li>
+      <li><a href="#" class="nav-link" data-page="lego"><span class="icon">🧱</span>Lego</a></li>
+      <li><a href="#" class="nav-link" data-page="budget"><span class="icon">💰</span>Budget</a></li>
+      <li><a href="#" class="nav-link" data-page="alerts"><span class="icon">🔔</span>Alertes</a></li>
+    </ul>
+    <div class="sidebar-footer">
+      <div class="api-budget" id="apiBudget">
+        <span class="budget-label">Anthropic</span>
+        <div class="budget-bar"><div class="budget-fill" id="budgetFill"></div></div>
+        <span class="budget-value" id="budgetValue">—</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ========== MAIN ========== -->
+  <main class="main-content">
+    <!-- Header -->
+    <header class="topbar">
+      <button class="menu-toggle" id="menuToggle" aria-label="Menu">☰</button>
+      <h1 class="page-title" id="pageTitle">Dashboard</h1>
+      <div class="topbar-actions">
+        <span class="clock" id="clock"></span>
+        <button class="btn btn-sm btn-primary" id="refreshBtn" title="Actualiser">↻</button>
+      </div>
+    </header>
+
+    <!-- ========== PAGE : DASHBOARD ========== -->
+    <section class="page active" id="page-dashboard">
+      <!-- Stat cards -->
+      <div class="stat-grid" id="statGrid">
+        <div class="stat-card" id="statPromos">
+          <div class="stat-icon">🏷️</div>
+          <div class="stat-body">
+            <div class="stat-value" id="statPromosVal">—</div>
+            <div class="stat-label">Promos aujourd'hui</div>
+          </div>
+        </div>
+        <div class="stat-card" id="statSteam">
+          <div class="stat-icon">🎮</div>
+          <div class="stat-body">
+            <div class="stat-value" id="statSteamVal">—</div>
+            <div class="stat-label">Jeux Steam</div>
+          </div>
+        </div>
+        <div class="stat-card" id="statTCG">
+          <div class="stat-icon">🃏</div>
+          <div class="stat-body">
+            <div class="stat-value" id="statTCGVal">—</div>
+            <div class="stat-label">Cartes en collection</div>
+          </div>
+        </div>
+        <div class="stat-card" id="statLego">
+          <div class="stat-icon">🧱</div>
+          <div class="stat-body">
+            <div class="stat-value" id="statLegoVal">—</div>
+            <div class="stat-label">Sets Lego</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts row -->
+      <div class="charts-row">
+        <div class="chart-card">
+          <h3 class="chart-title">Promos par source</h3>
+          <canvas id="chartSources"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3 class="chart-title">Budget mensuel</h3>
+          <canvas id="chartBudget"></canvas>
+        </div>
+      </div>
+
+      <!-- Top discounts -->
+      <div class="card">
+        <h3 class="card-title">🔥 Meilleures réductions</h3>
+        <div class="table-wrapper">
+          <table class="data-table" id="topDiscountsTable">
+            <thead>
+              <tr><th>Article</th><th>Source</th><th>Prix</th><th>Remise</th></tr>
+            </thead>
+            <tbody id="topDiscountsTbody">
+              <tr><td colspan="4" class="empty">Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Wishlist Steam en solde -->
+      <div class="card">
+        <h3 class="card-title">💸 Wishlist Steam en solde</h3>
+        <div id="steamOnSale" class="game-grid"></div>
+      </div>
+    </section>
+
+    <!-- ========== PAGE : PROMOS ========== -->
+    <section class="page" id="page-promos">
+      <div class="page-toolbar">
+        <div class="filters">
+          <select id="promoSourceFilter" class="select">
+            <option value="">Toutes les sources</option>
+          </select>
+          <select id="promoCategoryFilter" class="select">
+            <option value="">Toutes les catégories</option>
+            <option value="TCG">TCG</option>
+            <option value="Lego">Lego</option>
+            <option value="JeuxVideo">Jeux Vidéo</option>
+            <option value="JeuxSociete">Jeux de Société</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="scrapeNowBtn">⚡ Scraper maintenant</button>
+      </div>
+
+      <div id="promoGrid" class="promo-grid"></div>
+      <div class="pagination" id="promoPagination"></div>
+    </section>
+
+    <!-- ========== PAGE : STEAM ========== -->
+    <section class="page" id="page-steam">
+      <div class="tabs">
+        <button class="tab active" data-tab="steam-library">Bibliothèque</button>
+        <button class="tab" data-tab="steam-wishlist">Wishlist</button>
+      </div>
+
+      <div id="steam-library" class="tab-content active">
+        <div class="page-toolbar">
+          <input type="text" id="librarySearch" class="input" placeholder="Rechercher un jeu..." />
+          <button class="btn btn-primary" id="steamRefreshBtn">↻ Mettre à jour</button>
+        </div>
+        <div id="libraryStats" class="stat-row"></div>
+        <div id="libraryGrid" class="game-grid"></div>
+      </div>
+
+      <div id="steam-wishlist" class="tab-content">
+        <div id="wishlistGrid" class="game-grid"></div>
+      </div>
+    </section>
+
+    <!-- ========== PAGE : TCG ========== -->
+    <section class="page" id="page-tcg">
+      <div class="tabs">
+        <button class="tab active" data-tab="tcg-collection">Ma Collection</button>
+        <button class="tab" data-tab="tcg-search">Recherche</button>
+        <button class="tab" data-tab="tcg-missing">Cartes manquantes</button>
+      </div>
+
+      <!-- Collection -->
+      <div id="tcg-collection" class="tab-content active">
+        <div class="page-toolbar">
+          <select id="tcgGameFilter" class="select">
+            <option value="">Tous les jeux</option>
+            <option value="pokemon">Pokémon</option>
+            <option value="lorcana">Lorcana</option>
+          </select>
+          <button class="btn btn-primary" id="addCardBtn">+ Ajouter</button>
+          <button class="btn btn-secondary" id="exportCsvBtn">⬇ CSV</button>
+        </div>
+        <div class="collection-summary" id="tcgSummary"></div>
+        <div class="table-wrapper">
+          <table class="data-table" id="collectionTable">
+            <thead>
+              <tr><th>Jeu</th><th>Set</th><th>Carte</th><th>Rareté</th><th>État</th><th>Qté</th><th>Prix</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="collectionTbody">
+              <tr><td colspan="8" class="empty">Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Search -->
+      <div id="tcg-search" class="tab-content">
+        <div class="page-toolbar">
+          <select id="searchGame" class="select">
+            <option value="pokemon">Pokémon</option>
+            <option value="lorcana">Lorcana</option>
+          </select>
+          <input type="text" id="cardSearch" class="input" placeholder="Nom de la carte..." />
+          <button class="btn btn-primary" id="searchCardBtn">Rechercher</button>
+        </div>
+        <div id="cardResults" class="card-grid"></div>
+      </div>
+
+      <!-- Missing -->
+      <div id="tcg-missing" class="tab-content">
+        <div class="page-toolbar">
+          <select id="missingGame" class="select">
+            <option value="pokemon">Pokémon</option>
+            <option value="lorcana">Lorcana</option>
+          </select>
+          <input type="text" id="missingSet" class="input" placeholder="ID du set (ex: sv7)..." />
+          <button class="btn btn-primary" id="checkMissingBtn">Vérifier</button>
+        </div>
+        <div id="missingResults"></div>
+      </div>
+    </section>
+
+    <!-- ========== PAGE : LEGO ========== -->
+    <section class="page" id="page-lego">
+      <div class="page-toolbar">
+        <select id="legoStatusFilter" class="select">
+          <option value="owned">Possédés</option>
+          <option value="wishlist">Wishlist</option>
+          <option value="sold">Vendus</option>
+        </select>
+        <input type="text" id="legoThemeFilter" class="input" placeholder="Filtrer par thème..." />
+        <button class="btn btn-primary" id="addLegoBtn">+ Ajouter un set</button>
+      </div>
+      <div class="lego-stats" id="legoStats"></div>
+      <div class="table-wrapper">
+        <table class="data-table" id="legoTable">
+          <thead>
+            <tr><th>N°</th><th>Nom</th><th>Thème</th><th>Pièces</th><th>Prix payé</th><th>PPC</th><th>Date</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="legoTbody">
+            <tr><td colspan="8" class="empty">Chargement...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========== PAGE : BUDGET ========== -->
+    <section class="page" id="page-budget">
+      <div class="page-toolbar">
+        <input type="month" id="budgetMonth" class="input" />
+        <button class="btn btn-primary" id="addPurchaseBtn">+ Achat</button>
+      </div>
+      <div class="budget-grid" id="budgetGrid"></div>
+      <div class="chart-card" style="margin-top:1.5rem">
+        <h3 class="chart-title">Évolution mensuelle</h3>
+        <canvas id="chartBudgetHistory"></canvas>
+      </div>
+      <div class="card" style="margin-top:1.5rem">
+        <h3 class="card-title">Achats du mois</h3>
+        <div class="table-wrapper">
+          <table class="data-table" id="purchasesTable">
+            <thead>
+              <tr><th>Date</th><th>Article</th><th>Catégorie</th><th>Boutique</th><th>Montant</th><th></th></tr>
+            </thead>
+            <tbody id="purchasesTbody">
+              <tr><td colspan="6" class="empty">Chargement...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== PAGE : ALERTES ========== -->
+    <section class="page" id="page-alerts">
+      <div class="page-toolbar">
+        <button class="btn btn-primary" id="addAlertBtn">+ Nouvelle alerte</button>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table" id="alertsTable">
+          <thead>
+            <tr><th>Type</th><th>Article</th><th>Source</th><th>Seuil</th><th>Prix actuel</th><th>Statut</th><th></th></tr>
+          </thead>
+          <tbody id="alertsTbody">
+            <tr><td colspan="7" class="empty">Chargement...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:1.5rem">
+        <h3 class="card-title">Consommation API Anthropic</h3>
+        <div id="anthropicUsage"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ========== MODALS ========== -->
+  <!-- Modal générique -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modalTitle">Modal</h2>
+        <button class="modal-close" id="modalClose">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- ========== TOAST ========== -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="js/app.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/promos.js"></script>
+  <script src="js/steam.js"></script>
+  <script src="js/tcg.js"></script>
+  <script src="js/lego.js"></script>
+  <script src="js/budget.js"></script>
+  <script src="js/alerts.js"></script>
+</body>
+</html>

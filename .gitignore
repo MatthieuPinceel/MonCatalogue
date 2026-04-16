@@ -1,0 +1,7 @@
+node_modules/
+.env
+server/db/database.sqlite
+server/gmail_token.json
+server/logs/
+*.log
+.DS_Store
