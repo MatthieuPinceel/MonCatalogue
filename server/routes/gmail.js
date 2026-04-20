@@ -350,31 +350,63 @@ function getHtmlBody(payload) {
   return null;
 }
 
-function extractImageUrls(html, limit = 4) {
+function extractImageUrls(html, limit = 6) {
   const urls = [];
   const regex = /<img[^>]+src=["']([^"']+)["']/gi;
   let m;
   while ((m = regex.exec(html)) !== null && urls.length < limit) {
     const url = m[1];
-    if (/^https?:\/\//i.test(url) && !/spacer|pixel|track|beacon|1x1|open\.gif/i.test(url)) {
+    if (/^https:\/\//i.test(url) && !/spacer|pixel|track|beacon|1x1|open\.gif|logo/i.test(url)) {
       urls.push(url);
     }
   }
   return urls;
 }
 
+function downloadImage(url) {
+  return new Promise((resolve) => {
+    const mod = url.startsWith('https') ? https : http;
+    const req = mod.get(url, {
+      headers: { 'User-Agent': process.env.SCRAPE_USER_AGENT || 'Mozilla/5.0' },
+      timeout: 8000
+    }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return downloadImage(res.headers.location).then(resolve).catch(() => resolve(null));
+      }
+      if (res.statusCode !== 200) return resolve(null);
+      const contentType = res.headers['content-type'] || 'image/jpeg';
+      const mediaType = contentType.split(';')[0].trim();
+      if (!mediaType.startsWith('image/')) return resolve(null);
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ data: Buffer.concat(chunks).toString('base64'), mediaType }));
+      res.on('error', () => resolve(null));
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
 async function analyzeWithVision(imageUrls) {
   if (!process.env.ANTHROPIC_API_KEY || !imageUrls.length) return null;
   try {
+    // Télécharger les images côté serveur → base64
+    const downloads = await Promise.all(imageUrls.map(u => downloadImage(u)));
+    const images = downloads.filter(Boolean);
+    if (!images.length) return null;
+
     const { text } = await callHaikuVision({
-      imageUrls,
+      images,
       prompt: VISION_PROMPT,
       purpose: 'gmail_vision',
       maxTokens: 512
     });
-    const clean = text.replace(/```json|```/g, '').trim();
-    const parsed = JSON.parse(clean);
-    return parsed.offres || null;
+
+    // Parsing robuste : extraire le JSON même si Claude ajoute du texte autour
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const parsed = JSON.parse(jsonMatch[0]);
+    return parsed.offres?.length ? parsed.offres : null;
   } catch (err) {
     logger.warn(`[Gmail/Vision] Erreur : ${err.message}`);
     return null;
