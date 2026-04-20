@@ -147,17 +147,23 @@ async function deleteAlert(id) {
 }
 
 document.getElementById('gmailScanBtn').addEventListener('click', async () => {
-  const btn = document.getElementById('gmailScanBtn');
+  const btn    = document.getElementById('gmailScanBtn');
+  const status = document.getElementById('gmailScanStatus');
+  const days   = document.getElementById('gmailScanDays').value;
   btn.disabled = true;
   btn.textContent = '⏳ Scan en cours...';
+  status.textContent = 'Analyse des images avec Claude Vision…';
   try {
-    const data = await API.post('/gmail/scan', {});
-    toast(`Gmail : ${data.saved} email(s) promo trouvé(s)`, 'success');
+    const data = await API.post(`/gmail/scan?days=${days}`, {});
+    const aiCount = (data.items || []).filter(i => i.ai_summary).length;
+    toast(`${data.saved} email(s) enregistré(s) sur ${data.scanned} trouvé(s)`, 'success');
+    status.textContent = `✓ ${data.scanned} emails scannés · ${data.saved} nouveaux · ${aiCount} analysés par Vision`;
   } catch (err) {
     toast(`Erreur scan Gmail : ${err.message}`, 'error');
+    status.textContent = '';
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '📧 Scanner les emails Gmail';
+    btn.innerHTML = '📧 Lancer le scan';
   }
 });
 
