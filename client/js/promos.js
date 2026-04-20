@@ -198,13 +198,27 @@ function renderGmailPromos(items) {
         </div>`;
     }).join('');
 
+    const catId = `gmail-cat-${cat.replace(/\s/g,'_')}`;
     return `
       <div class="card" style="margin-bottom:1rem">
-        <h3 class="card-title" style="margin-bottom:.5rem">${catLabel} <span style="font-weight:400;font-size:.85rem;color:var(--text-muted)">(${catItems.length})</span></h3>
-        ${cards}
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none"
+             onclick="toggleGmailCat('${catId}')">
+          <h3 class="card-title" style="margin:0">${catLabel} <span style="font-weight:400;font-size:.85rem;color:var(--text-muted)">(${catItems.length})</span></h3>
+          <span id="${catId}-icon" style="color:var(--text-muted);font-size:1.1rem;transition:transform .2s">▾</span>
+        </div>
+        <div id="${catId}" style="margin-top:.5rem">${cards}</div>
       </div>`;
   }).join('');
 }
+
+function toggleGmailCat(id) {
+  const body = document.getElementById(id);
+  const icon = document.getElementById(`${id}-icon`);
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? '' : 'none';
+  icon.style.transform = collapsed ? '' : 'rotate(-90deg)';
+}
+window.toggleGmailCat = toggleGmailCat;
 
 document.getElementById('gmailReloadBtn').addEventListener('click', loadGmailPromos);
 
