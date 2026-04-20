@@ -106,7 +106,7 @@ async function scrapeSmyths() {
 // ---------------------------------------------------------------
 async function scrapeFuretDuNord() {
   const source = 'furetdunord';
-  const url    = 'https://www.furet.com/soldes/jeux-de-societe.html';
+  const url    = 'https://www.furet.com/livres/livres-a-prix-reduits/loisirs-et-sports/jeux.html';
   logger.info(`[Scraper] ${source} — début`);
   try {
     await sleep(DELAY);
