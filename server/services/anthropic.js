@@ -126,7 +126,7 @@ async function callHaiku({ systemPrompt, userMessage, purpose, maxTokens = 1024 
  * @param {string}   [purpose]
  * @param {number}   [maxTokens]
  */
-async function callHaikuVision({ imageUrls, prompt, purpose, maxTokens = 1024 }) {
+async function callHaikuVision({ images, prompt, purpose, maxTokens = 1024 }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY non configurée');
 
@@ -136,9 +136,10 @@ async function callHaikuVision({ imageUrls, prompt, purpose, maxTokens = 1024 })
     throw new Error(`Budget Anthropic mensuel épuisé`);
   }
 
-  const content = imageUrls.map(url => ({
+  // images : [{ data: base64string, mediaType: 'image/jpeg' }]
+  const content = images.map(img => ({
     type: 'image',
-    source: { type: 'url', url }
+    source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.data }
   }));
   content.push({ type: 'text', text: prompt });
 
@@ -148,7 +149,7 @@ async function callHaikuVision({ imageUrls, prompt, purpose, maxTokens = 1024 })
     messages: [{ role: 'user', content }]
   });
 
-  logger.info(`[Anthropic/Vision] ${imageUrls.length} image(s) — budget restant : ${(LIMIT_USD - spend).toFixed(4)} $`);
+  logger.info(`[Anthropic/Vision] ${images.length} image(s) — budget restant : ${(LIMIT_USD - spend).toFixed(4)} $`);
 
   return new Promise((resolve, reject) => {
     const req = https.request({
