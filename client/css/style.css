@@ -239,11 +239,30 @@ button { cursor: pointer; font-family: inherit; }
 .filters { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* ─── Promo grid ─── */
-.promo-grid {
+.promo-grid { display: block; margin-bottom: 16px; }
+
+.promo-category-section { margin-bottom: 1.5rem; }
+.promo-cat-header {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  padding: .6rem .9rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  font-size: 1rem;
+  margin-bottom: .75rem;
+}
+.promo-cat-count { color: var(--text-muted); font-weight: 400; font-size: .85rem; }
+.promo-cat-toggle { margin-left: auto; color: var(--text-muted); transition: transform .2s; }
+.promo-cat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
 }
 .promo-card {
   background:    var(--bg-card);
