@@ -146,10 +146,7 @@
       <div class="tab-content" id="promos-gmail">
         <div class="page-toolbar" style="margin-top:1rem">
           <span style="color:var(--text-muted);font-size:.9rem">Emails promos des 7 derniers jours</span>
-          <div style="display:flex;gap:.5rem">
-            <button class="btn btn-secondary" id="gmailReloadBtn">🔄 Actualiser</button>
-            <button class="btn btn-primary" id="gmailScanBtn2">📧 Scanner Gmail</button>
-          </div>
+          <button class="btn btn-secondary" id="gmailReloadBtn">🔄 Actualiser</button>
         </div>
         <div id="gmailPromoList"></div>
       </div>
@@ -291,9 +288,22 @@
 
     <!-- ========== PAGE : ALERTES ========== -->
     <section class="page" id="page-alerts">
+      <div class="card" style="margin-bottom:1.5rem;padding:1rem 1.25rem">
+        <h3 class="card-title" style="margin-bottom:.75rem">📧 Scan Gmail</h3>
+        <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap">
+          <label style="font-size:.9rem;color:var(--text-muted)">Période :</label>
+          <select id="gmailScanDays" class="select" style="width:auto">
+            <option value="1">24 heures</option>
+            <option value="7" selected>7 jours</option>
+            <option value="14">14 jours</option>
+            <option value="30">30 jours</option>
+          </select>
+          <button class="btn btn-primary" id="gmailScanBtn">📧 Lancer le scan</button>
+          <span id="gmailScanStatus" style="font-size:.85rem;color:var(--text-muted)"></span>
+        </div>
+      </div>
       <div class="page-toolbar">
         <button class="btn btn-primary" id="addAlertBtn">+ Nouvelle alerte</button>
-        <button class="btn btn-secondary" id="gmailScanBtn">📧 Scanner les emails Gmail</button>
       </div>
       <div class="table-wrapper">
         <table class="data-table" id="alertsTable">
