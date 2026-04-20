@@ -184,7 +184,7 @@ async function scrapePhilibert() {
 // ---------------------------------------------------------------
 async function scrapeCultura() {
   const source = 'cultura';
-  const url    = 'https://www.cultura.com/c/jeux?prefn1=isOnSale&prefv1=true';
+  const url    = 'https://www.cultura.com/les-promotions.html';
   logger.info(`[Scraper] ${source} — début`);
   try {
     await sleep(DELAY);
