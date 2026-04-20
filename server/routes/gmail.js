@@ -362,7 +362,7 @@ function extractImageUrls(html, limit = 6) {
   return urls;
 }
 
-function downloadImage(url) {
+function downloadImage(url, maxRedirects = 5) {
   return new Promise((resolve) => {
     const mod = url.startsWith('https') ? https : http;
     const req = mod.get(url, {
@@ -370,12 +370,14 @@ function downloadImage(url) {
       timeout: 8000
     }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return downloadImage(res.headers.location).then(resolve).catch(() => resolve(null));
+        res.resume();
+        if (maxRedirects <= 0) return resolve(null);
+        return downloadImage(res.headers.location, maxRedirects - 1).then(resolve).catch(() => resolve(null));
       }
-      if (res.statusCode !== 200) return resolve(null);
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
       const contentType = res.headers['content-type'] || 'image/jpeg';
       const mediaType = contentType.split(';')[0].trim();
-      if (!mediaType.startsWith('image/')) return resolve(null);
+      if (!mediaType.startsWith('image/')) { res.resume(); return resolve(null); }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve({ data: Buffer.concat(chunks).toString('base64'), mediaType }));
