@@ -145,8 +145,11 @@
       <!-- Onglet Gmail -->
       <div class="tab-content" id="tab-promos-gmail">
         <div class="page-toolbar" style="margin-top:1rem">
-          <span style="color:var(--text-muted);font-size:.9rem">Emails promos des dernières 24h</span>
-          <button class="btn btn-secondary" id="gmailScanBtn2">📧 Scanner Gmail</button>
+          <span style="color:var(--text-muted);font-size:.9rem">Emails promos des 7 derniers jours</span>
+          <div style="display:flex;gap:.5rem">
+            <button class="btn btn-secondary" id="gmailReloadBtn">🔄 Actualiser</button>
+            <button class="btn btn-primary" id="gmailScanBtn2">📧 Scanner Gmail</button>
+          </div>
         </div>
         <div id="gmailPromoList"></div>
       </div>
