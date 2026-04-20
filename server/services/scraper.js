@@ -43,126 +43,19 @@ function calcDiscount(original, sale) {
   return Math.round((1 - sale / original) * 100);
 }
 
-// ---------------------------------------------------------------
-// KING JOUET
-// ---------------------------------------------------------------
 async function scrapeKingJouet() {
-  const source = 'kingjouet';
-  const url    = 'https://www.king-jouet.com/bons-plans/toutes-les-promos.htm';
-  logger.info(`[Scraper] ${source} — début`);
-  try {
-    await sleep(DELAY);
-    const { data } = await makeHttp('https://www.king-jouet.com/').get(url);
-    const $        = cheerio.load(data);
-    const results  = [];
-
-    $('[class*="product-item"], [class*="productItem"], [class*="product_item"]').each((i, el) => {
-      const title = $(el).find('[class*="title"], [class*="name"], h2, h3').first().text().trim();
-      if (!title || title.length < 3) return;
-      const priceNew      = normalizePrice($(el).find('[class*="price-new"], [class*="promo"], [class*="sale"]').first().text());
-      const priceOld      = normalizePrice($(el).find('[class*="price-old"], [class*="barre"], [class*="original"]').first().text());
-      const price         = priceNew || normalizePrice($(el).find('[class*="price"]').first().text());
-      const href          = $(el).find('a').first().attr('href') || '';
-      const img           = $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || '';
-      if (!price) return;
-      results.push({
-        source, title, price,
-        original_price:   priceOld,
-        discount_percent: calcDiscount(priceOld, price),
-        url:       href.startsWith('http') ? href : `https://www.king-jouet.com${href}`,
-        image_url: img.startsWith('http') ? img : (img ? `https://www.king-jouet.com${img}` : null),
-        category:  guessCategoryFromTitle(title),
-        scraped_at: new Date().toISOString()
-      });
-    });
-    logger.info(`[Scraper] ${source} — ${results.length} articles`);
-    return results;
-  } catch (err) {
-    logger.error(`[Scraper] ${source} erreur : ${err.message}`);
-    return [];
-  }
+  logger.info(`[Scraper] kingjouet — ignoré (Cloudflare, couvert par Gmail)`);
+  return [];
 }
 
-// ---------------------------------------------------------------
-// MICROMANIA
-// ---------------------------------------------------------------
 async function scrapeMicromania() {
-  const source = 'micromania';
-  const url    = 'https://www.micromania.fr/offres-et-promos';
-  logger.info(`[Scraper] ${source} — début`);
-  try {
-    await sleep(DELAY);
-    const { data } = await makeHttp('https://www.micromania.fr/').get(url);
-    const $        = cheerio.load(data);
-    const results  = [];
-
-    $('li.product-item, .product-item-info, [class*="product-card"]').each((i, el) => {
-      const title    = $(el).find('[class*="product-item-name"], [class*="product-name"]').first().text().trim();
-      if (!title) return;
-      const priceNew = normalizePrice($(el).find('.special-price .price, [class*="price-final"] .price').first().text());
-      const priceOld = normalizePrice($(el).find('.old-price .price, [class*="regular"] .price').first().text());
-      const price    = priceNew || normalizePrice($(el).find('.price').first().text());
-      if (!price) return;
-      const href = $(el).find('a').first().attr('href') || '';
-      const img  = $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || '';
-      results.push({
-        source, title, price,
-        original_price:   priceOld,
-        discount_percent: calcDiscount(priceOld, price),
-        url:       href.startsWith('http') ? href : `https://www.micromania.fr${href}`,
-        image_url: img || null,
-        category:  guessCategoryFromTitle(title) || 'JeuxVideo',
-        scraped_at: new Date().toISOString()
-      });
-    });
-    logger.info(`[Scraper] ${source} — ${results.length} articles`);
-    return results;
-  } catch (err) {
-    logger.error(`[Scraper] ${source} erreur : ${err.message}`);
-    return [];
-  }
+  logger.info(`[Scraper] micromania — ignoré (Cloudflare, couvert par Gmail)`);
+  return [];
 }
 
-// ---------------------------------------------------------------
-// FNAC — API JSON publique (évite les 403 HTML)
-// ---------------------------------------------------------------
 async function scrapeFnac() {
-  const source = 'fnac';
-  logger.info(`[Scraper] ${source} — début`);
-  const urls = [
-    'https://www.fnac.com/Jeux-de-societe/ar-Jeux-de-soci%C3%A9t%C3%A9/s99254502/w-4',
-    'https://www.fnac.com/Jeux-video/a2000/s99254502/w-4'
-  ];
-  const all = [];
-  for (const url of urls) {
-    try {
-      await sleep(DELAY);
-      const { data } = await makeHttp('https://www.fnac.com/').get(url);
-      const $ = cheerio.load(data);
-      $('li.Article-item, article.Article, .Article-item').each((i, el) => {
-        const title    = $(el).find('.Article-title, h3, h2').first().text().trim();
-        if (!title || title.length < 3) return;
-        const priceNew = normalizePrice($(el).find('[class*="priceBox-price"], [class*="price-final"]').first().text());
-        const priceOld = normalizePrice($(el).find('[class*="oldPrice"], [class*="original"]').first().text());
-        const price    = priceNew || normalizePrice($(el).find('[class*="price"]').first().text());
-        if (!price) return;
-        const href = $(el).find('a').first().attr('href') || '';
-        all.push({
-          source, title, price,
-          original_price:   priceOld,
-          discount_percent: calcDiscount(priceOld, price),
-          url:       href.startsWith('http') ? href : `https://www.fnac.com${href}`,
-          image_url: $(el).find('img').first().attr('src') || null,
-          category:  guessCategoryFromTitle(title),
-          scraped_at: new Date().toISOString()
-        });
-      });
-    } catch (err) {
-      logger.error(`[Scraper] ${source} erreur (${url}) : ${err.message}`);
-    }
-  }
-  logger.info(`[Scraper] ${source} — ${all.length} articles`);
-  return all;
+  logger.info(`[Scraper] fnac — ignoré (protection anti-bot, couvert par Gmail)`);
+  return [];
 }
 
 // ---------------------------------------------------------------
@@ -170,38 +63,42 @@ async function scrapeFnac() {
 // ---------------------------------------------------------------
 async function scrapeSmyths() {
   const source = 'smyths';
-  const url    = 'https://www.smythstoys.com/fr/fr-fr/offres-speciales/c/SSO01';
+  const urls   = [
+    'https://www.smythstoys.com/fr/fr-fr/jouets/mega-promos/c/mega-promos',
+    'https://www.smythstoys.com/fr/fr-fr/jouets/super-promos/c/super-promos'
+  ];
   logger.info(`[Scraper] ${source} — début`);
-  try {
-    await sleep(DELAY);
-    const { data } = await makeHttp('https://www.smythstoys.com/fr/fr-fr/').get(url);
-    const $        = cheerio.load(data);
-    const results  = [];
+  const results = [];
+  for (const url of urls) {
+    try {
+      await sleep(DELAY);
+      const { data } = await makeHttp('https://www.smythstoys.com/fr/fr-fr/').get(url);
+      const $ = cheerio.load(data);
 
-    $('[class*="product"], [class*="Product"]').each((i, el) => {
-      const title = $(el).find('[class*="productName"], [class*="product-name"], [class*="ProductName"], h2, h3').first().text().trim();
-      if (!title || title.length < 3) return;
-      const priceNew = normalizePrice($(el).find('[class*="salePrice"], [class*="special"], [class*="now"], [class*="sale"]').first().text());
-      const priceOld = normalizePrice($(el).find('[class*="wasPrice"], [class*="original"], [class*="old"]').first().text());
-      const price    = priceNew || normalizePrice($(el).find('[class*="price"], [class*="Price"]').first().text());
-      if (!price) return;
-      const href = $(el).find('a').first().attr('href') || '';
-      results.push({
-        source, title, price,
-        original_price:   priceOld,
-        discount_percent: calcDiscount(priceOld, price),
-        url:       href.startsWith('http') ? href : `https://www.smythstoys.com${href}`,
-        image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
-        category:  guessCategoryFromTitle(title),
-        scraped_at: new Date().toISOString()
+      $('.product-item, [class*="productItem"], [class*="product-item"]').each((i, el) => {
+        const title = $(el).find('.product__name, [class*="product__name"], [class*="productName"], h2, h3').first().text().trim();
+        if (!title || title.length < 3) return;
+        const priceNew = normalizePrice($(el).find('[class*="salePrice"], [class*="sale-price"], [class*="now-price"]').first().text());
+        const priceOld = normalizePrice($(el).find('[class*="wasPrice"], [class*="was-price"], [class*="old-price"], s').first().text());
+        const price    = priceNew || normalizePrice($(el).find('.price, [class*="price"]').first().text());
+        if (!price) return;
+        const href = $(el).find('a.product__image-link, a').first().attr('href') || '';
+        results.push({
+          source, title, price,
+          original_price:   priceOld,
+          discount_percent: calcDiscount(priceOld, price),
+          url:       href.startsWith('http') ? href : `https://www.smythstoys.com${href}`,
+          image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
+          category:  guessCategoryFromTitle(title),
+          scraped_at: new Date().toISOString()
+        });
       });
-    });
-    logger.info(`[Scraper] ${source} — ${results.length} articles`);
-    return results;
-  } catch (err) {
-    logger.error(`[Scraper] ${source} erreur : ${err.message}`);
-    return [];
+    } catch (err) {
+      logger.warn(`[Scraper] ${source} erreur sur ${url} : ${err.message}`);
+    }
   }
+  logger.info(`[Scraper] ${source} — ${results.length} articles`);
+  return results;
 }
 
 // ---------------------------------------------------------------
@@ -209,7 +106,7 @@ async function scrapeSmyths() {
 // ---------------------------------------------------------------
 async function scrapeFuretDuNord() {
   const source = 'furetdunord';
-  const url    = 'https://www.furet.com/jeux-et-jouets/jeux-de-societe/promotions.html';
+  const url    = 'https://www.furet.com/soldes/jeux-de-societe.html';
   logger.info(`[Scraper] ${source} — début`);
   try {
     await sleep(DELAY);
@@ -248,7 +145,7 @@ async function scrapeFuretDuNord() {
 // ---------------------------------------------------------------
 async function scrapePhilibert() {
   const source = 'philibert';
-  const url    = 'https://www.philibertnet.com/fr/33-promotions';
+  const url    = 'https://www.philibertnet.com/fr/promotions';
   logger.info(`[Scraper] ${source} — début`);
   try {
     await sleep(DELAY);
