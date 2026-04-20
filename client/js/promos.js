@@ -120,16 +120,8 @@ async function loadPromoSources() {
   } catch (e) { /* silencieux */ }
 }
 
-// ── Onglets ────────────────────────────────────────────────────
-document.querySelectorAll('#page-promos .tab').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('#page-promos .tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('#page-promos .tab-content').forEach(t => t.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
-    if (btn.dataset.tab === 'promos-gmail') loadGmailPromos();
-  });
-});
+// ── Onglet Gmail : charger au clic ────────────────────────────
+document.querySelector('[data-tab="promos-gmail"]').addEventListener('click', loadGmailPromos);
 
 // ── Promos Gmail ───────────────────────────────────────────────
 async function loadGmailPromos() {
