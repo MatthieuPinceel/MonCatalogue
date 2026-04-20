@@ -169,42 +169,51 @@ async function fetchSteamLibrary() {
 async function fetchSteamWishlist() {
   if (!STEAM_ID) throw new Error('STEAM_ID manquant dans .env');
 
-  // La wishlist Steam est publique si le profil est public
-  const url = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/wishlistdata/?p=0`;
+  const loginSecure = process.env.STEAM_LOGIN_SECURE;
+  const headers = {
+    'User-Agent':       process.env.SCRAPE_USER_AGENT ||
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':           'application/json, text/javascript, */*; q=0.01',
+    'Accept-Language':  'fr-FR,fr;q=0.9,en;q=0.8',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Referer':          `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/`,
+    ...(loginSecure ? { 'Cookie': `steamLoginSecure=${loginSecure}; birthtime=0` } : {})
+  };
 
-  const { data } = await http.get(url, {
-    headers: {
-      'User-Agent': process.env.SCRAPE_USER_AGENT || 'Mozilla/5.0',
-      'Accept': 'application/json'
-    }
-  });
+  // Récupérer toutes les pages (50 jeux/page)
+  const allData = {};
+  let page = 0;
+  while (true) {
+    const url = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/wishlistdata/?p=${page}`;
+    const { data } = await http.get(url, { headers });
+    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) break;
+    Object.assign(allData, data);
+    page++;
+    if (page > 20) break; // sécurité : max 1000 jeux
+  }
 
   const db    = getDb();
   const now   = new Date().toISOString();
   const items = [];
 
-  if (data && typeof data === 'object') {
-    for (const [appid, info] of Object.entries(data)) {
-      if (info.name) {
-        // Récupérer le prix depuis l'API store si disponible
-        const subs  = info.subs || [];
-        const sub   = subs.find(s => s.discount_pct !== undefined) || subs[0] || {};
-        const price = sub.price ? sub.price / 100 : null;
-        const sale  = sub.discount_pct ? price * (1 - sub.discount_pct / 100) : price;
+  for (const [appid, info] of Object.entries(allData)) {
+    if (!info.name) continue;
+    const subs  = info.subs || [];
+    const sub   = subs.find(s => s.discount_pct !== undefined) || subs[0] || {};
+    const price = sub.price ? sub.price / 100 : null;
+    const sale  = sub.discount_pct && price ? price * (1 - sub.discount_pct / 100) : price;
 
-        items.push({
-          appid:        parseInt(appid, 10),
-          name:         info.name,
-          price:        price,
-          sale_price:   sale,
-          discount:     sub.discount_pct || 0,
-          release_date: info.release_string || null,
-          image_url:    `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
-          store_url:    `https://store.steampowered.com/app/${appid}`,
-          updated_at:   now
-        });
-      }
-    }
+    items.push({
+      appid:        parseInt(appid, 10),
+      name:         info.name,
+      price,
+      sale_price:   sale,
+      discount:     sub.discount_pct || 0,
+      release_date: info.release_string || null,
+      image_url:    `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+      store_url:    `https://store.steampowered.com/app/${appid}`,
+      updated_at:   now
+    });
   }
 
   const stmt = db.prepare(`
@@ -224,7 +233,7 @@ async function fetchSteamWishlist() {
   const upsert = db.transaction((rows) => { for (const r of rows) stmt.run(r); });
   upsert(items);
 
-  logger.info(`[Steam] Wishlist : ${items.length} jeux enregistrés`);
+  logger.info(`[Steam] Wishlist : ${items.length} jeux (${page} page(s)) — cookie: ${loginSecure ? 'oui' : 'non'}`);
   return db.prepare('SELECT * FROM steam_wishlist ORDER BY name ASC').all();
 }
 
