@@ -17,13 +17,25 @@
  */
 
 const express = require('express');
-const router  = express.Router();
+const router  = require('express').Router();
 const fs      = require('fs');
 const path    = require('path');
+const https   = require('https');
+const http    = require('http');
 const { google } = require('googleapis');
 const { getDb }  = require('../db/init');
 const logger  = require('../services/logger');
 const mailer  = require('../services/mailer');
+const { callHaikuVision } = require('../services/anthropic');
+
+const VISION_PROMPT = `Tu es un extracteur de promotions. Analyse ces images d'email promotionnel.
+Réponds UNIQUEMENT avec du JSON valide, sans markdown, sans explication.
+Format: {"offres":[{"produit":"...","prix":"...","remise":"...","condition":"...","validite":"..."}]}
+- produit : nom exact du produit ou catégorie (ex: "Magic The Gathering Boosters", "Tomodachi Life Switch")
+- prix : prix affiché (ex: "19,99€", "5€", "4,99€")
+- remise : réduction (ex: "-30%", "2=3", "bon d'achat 10€ offert", "2 pour 5€")
+- condition : condition si mentionnée (ex: "dès 50€ d'achat", "en précommande")
+- validite : durée si mentionnée (ex: "du 13 avril au 4 mai", "dernier jour")`;
 
 const TOKEN_PATH    = path.resolve(process.env.GMAIL_TOKEN_PATH || 'server/gmail_token.json');
 const REDIRECT_URI  = process.env.GMAIL_REDIRECT_URI || 'http://localhost:3000/api/gmail/oauth2callback';
@@ -207,6 +219,7 @@ router.get('/promos', (req, res) => {
       ...r,
       category:         r.category || guessCategoryFromEmail((r.subject || '') + ' ' + (r.snippet || '') + ' ' + (r.sender || '')),
       extracted_promos: r.extracted_promos ? JSON.parse(r.extracted_promos) : [],
+      ai_summary:       r.ai_summary ? JSON.parse(r.ai_summary) : null,
       gmail_link:       `https://mail.google.com/mail/u/0/#all/${r.message_id}`
     })));
   } catch (err) {
@@ -247,8 +260,7 @@ async function scanPromoEmails(days = 7) {
     const detail = await gmail.users.messages.get({
       userId: 'me',
       id: msg.id,
-      format: 'metadata',
-      metadataHeaders: ['Subject', 'From', 'Date']
+      format: 'full'
     });
 
     const headers  = detail.data.payload?.headers || [];
@@ -257,16 +269,22 @@ async function scanPromoEmails(days = 7) {
     const date     = headers.find(h => h.name === 'Date')?.value    || '';
     const snippet  = detail.data.snippet || '';
 
-    const extracted = extractPromosFromText(subject + ' ' + snippet);
-    const category  = guessCategoryFromEmail(subject + ' ' + snippet + ' ' + sender);
+    const extracted  = extractPromosFromText(subject + ' ' + snippet);
+    const category   = guessCategoryFromEmail(subject + ' ' + snippet + ' ' + sender);
+
+    // Extraction Vision si clé dispo
+    const htmlBody   = getHtmlBody(detail.data.payload);
+    const imageUrls  = htmlBody ? extractImageUrls(htmlBody) : [];
+    const aiSummary  = await analyzeWithVision(imageUrls);
 
     db.prepare(`
       INSERT OR IGNORE INTO gmail_promos
-        (message_id, subject, sender, snippet, extracted_promos, category, received_at, processed_at, used_ai)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), 0)
-    `).run(msg.id, subject, sender, snippet, JSON.stringify(extracted), category, date);
+        (message_id, subject, sender, snippet, extracted_promos, category, ai_summary, received_at, processed_at, used_ai)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
+    `).run(msg.id, subject, sender, snippet, JSON.stringify(extracted), category,
+           aiSummary ? JSON.stringify(aiSummary) : null, date, aiSummary ? 1 : 0);
 
-    saved.push({ message_id: msg.id, subject, sender, extracted, category });
+    saved.push({ message_id: msg.id, subject, sender, extracted, category, ai_summary: aiSummary });
   }
 
   logger.info(`[Gmail] ${saved.length} email(s) enregistré(s)`);
@@ -281,6 +299,49 @@ function guessCategoryFromEmail(text) {
   if (/jeux?\s*de\s*soci[eé]t[eé]|plateau|boardgame|asmodee|ravensburger/.test(t)) return 'JeuxSociete';
   if (/veepee|vente.priv[eé]e|vente\s+flash/.test(t)) return 'VentePrivee';
   return 'Général';
+}
+
+function getHtmlBody(payload) {
+  if (!payload) return null;
+  if (payload.mimeType === 'text/html' && payload.body?.data) {
+    return Buffer.from(payload.body.data, 'base64url').toString('utf8');
+  }
+  for (const part of (payload.parts || [])) {
+    const result = getHtmlBody(part);
+    if (result) return result;
+  }
+  return null;
+}
+
+function extractImageUrls(html, limit = 4) {
+  const urls = [];
+  const regex = /<img[^>]+src=["']([^"']+)["']/gi;
+  let m;
+  while ((m = regex.exec(html)) !== null && urls.length < limit) {
+    const url = m[1];
+    if (/^https?:\/\//i.test(url) && !/spacer|pixel|track|beacon|1x1|open\.gif/i.test(url)) {
+      urls.push(url);
+    }
+  }
+  return urls;
+}
+
+async function analyzeWithVision(imageUrls) {
+  if (!process.env.ANTHROPIC_API_KEY || !imageUrls.length) return null;
+  try {
+    const { text } = await callHaikuVision({
+      imageUrls,
+      prompt: VISION_PROMPT,
+      purpose: 'gmail_vision',
+      maxTokens: 512
+    });
+    const clean = text.replace(/```json|```/g, '').trim();
+    const parsed = JSON.parse(clean);
+    return parsed.offres || null;
+  } catch (err) {
+    logger.warn(`[Gmail/Vision] Erreur : ${err.message}`);
+    return null;
+  }
 }
 
 function extractPromosFromText(text) {
