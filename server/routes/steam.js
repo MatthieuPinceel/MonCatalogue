@@ -185,7 +185,8 @@ async function fetchSteamWishlist() {
   let page = 0;
   while (true) {
     const url = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/wishlistdata/?p=${page}`;
-    const { data } = await http.get(url, { headers });
+    const { data, status, headers: resHeaders } = await http.get(url, { headers });
+    logger.info(`[Steam/Wishlist] p=${page} status=${status} type=${typeof data} keys=${typeof data === 'object' ? Object.keys(data).length : JSON.stringify(data).slice(0,120)}`);
     if (!data || typeof data !== 'object' || Object.keys(data).length === 0) break;
     Object.assign(allData, data);
     page++;
