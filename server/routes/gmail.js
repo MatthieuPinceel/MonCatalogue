@@ -206,6 +206,43 @@ router.post('/scan', async (req, res) => {
 });
 
 // ---------------------------------------------------------------
+// POST /api/gmail/analyze — re-analyse Vision des emails sans ai_summary
+// ---------------------------------------------------------------
+router.post('/analyze', async (req, res) => {
+  if (!oauth2Client) return res.status(400).json({ error: 'Gmail non connecté.' });
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(400).json({ error: 'ANTHROPIC_API_KEY manquante.' });
+
+  try {
+    const gmail = google.gmail({ version: 'v1', auth: oauth2Client });
+    const db    = getDb();
+    const rows  = db.prepare(`SELECT id, message_id FROM gmail_promos WHERE ai_summary IS NULL`).all();
+    logger.info(`[Gmail/Vision] ${rows.length} email(s) à analyser`);
+
+    let done = 0;
+    for (const row of rows) {
+      try {
+        const detail   = await gmail.users.messages.get({ userId: 'me', id: row.message_id, format: 'full' });
+        const htmlBody = getHtmlBody(detail.data.payload);
+        const imgUrls  = htmlBody ? extractImageUrls(htmlBody) : [];
+        const summary  = await analyzeWithVision(imgUrls);
+        if (summary) {
+          db.prepare(`UPDATE gmail_promos SET ai_summary = ?, used_ai = 1 WHERE id = ?`)
+            .run(JSON.stringify(summary), row.id);
+          done++;
+        }
+      } catch (e) {
+        logger.warn(`[Gmail/Vision] Skip ${row.message_id} : ${e.message}`);
+      }
+    }
+
+    res.json({ total: rows.length, analyzed: done });
+  } catch (err) {
+    logger.error(`[/api/gmail/analyze] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------
 // GET /api/gmail/promos
 // Retourne les promos extraites des emails
 // ---------------------------------------------------------------
