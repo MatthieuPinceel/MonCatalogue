@@ -180,23 +180,32 @@ async function fetchSteamWishlist() {
   const url  = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/`;
   const { data: html } = await http.get(url, { headers, responseType: 'text' });
 
-  // Steam intègre les données dans la page sous forme de JSON dans un script
-  const match = html.match(/g_rgWishlistData\s*=\s*(\[[\s\S]*?\]);/) ||
-                html.match(/wishlist_data\s*=\s*(\[[\s\S]*?\]);/) ||
-                html.match(/"wishlist_items"\s*:\s*(\[[\s\S]*?\])/);
+  // Log les patterns trouvés pour diagnostic
+  const scriptVars = (html.match(/(?:var |window\.)\w*[Ww]ish\w*\s*=/g) || []);
+  logger.info(`[Steam/Wishlist] Variables script trouvées : ${scriptVars.join(', ') || 'aucune'}`);
+  logger.info(`[Steam/Wishlist] Extrait HTML (500c) : ${html.slice(0, 500).replace(/\n/g,' ')}`);
+
+  // Essayer plusieurs patterns selon la version de la page Steam
+  const patterns = [
+    /g_rgWishlistData\s*=\s*(\[[\s\S]*?\]);/,
+    /g_rgWishlistData\s*=\s*(\{[\s\S]*?\});/,
+    /wishlist_data\s*=\s*(\[[\s\S]*?\]);/,
+    /"rgWishlistData"\s*:\s*(\[[\s\S]*?\])/,
+    /UserYou_rgWishlistData\s*=\s*(\[[\s\S]*?\]);/,
+    /"wishlist_items"\s*:\s*(\[[\s\S]*?\])/,
+  ];
 
   let wishlistItems = [];
-  if (match) {
-    try { wishlistItems = JSON.parse(match[1]); } catch (e) { logger.warn('[Steam/Wishlist] Échec parsing JSON embarqué'); }
-  }
-
-  // Fallback : données sous forme d'objet clé=appid
-  const matchObj = !wishlistItems.length &&
-    html.match(/g_rgWishlistData\s*=\s*(\{[\s\S]*?\});/);
-  if (matchObj) {
+  for (const pattern of patterns) {
+    const m = html.match(pattern);
+    if (!m) continue;
     try {
-      const obj = JSON.parse(matchObj[1]);
-      wishlistItems = Object.entries(obj).map(([appid, info]) => ({ appid, ...info }));
+      const parsed = JSON.parse(m[1]);
+      if (Array.isArray(parsed)) { wishlistItems = parsed; break; }
+      if (typeof parsed === 'object') {
+        wishlistItems = Object.entries(parsed).map(([appid, info]) => ({ appid, ...info }));
+        break;
+      }
     } catch (e) {}
   }
 
