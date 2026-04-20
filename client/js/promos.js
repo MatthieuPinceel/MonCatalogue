@@ -120,6 +120,86 @@ async function loadPromoSources() {
   } catch (e) { /* silencieux */ }
 }
 
+// ── Onglets ────────────────────────────────────────────────────
+document.querySelectorAll('#page-promos .tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('#page-promos .tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('#page-promos .tab-content').forEach(t => t.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+    if (btn.dataset.tab === 'promos-gmail') loadGmailPromos();
+  });
+});
+
+// ── Promos Gmail ───────────────────────────────────────────────
+async function loadGmailPromos() {
+  const container = document.getElementById('gmailPromoList');
+  container.innerHTML = '<p style="color:var(--text-muted);padding:1rem">Chargement...</p>';
+  try {
+    const items = await API.get('/gmail/promos');
+    renderGmailPromos(items);
+  } catch (err) {
+    container.innerHTML = `<p style="color:var(--danger);padding:1rem">Erreur : ${err.message}</p>`;
+  }
+}
+
+function renderGmailPromos(items) {
+  const container = document.getElementById('gmailPromoList');
+  if (!items.length) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📧</div>
+        <p>Aucun email promo trouvé.<br>Clique sur "Scanner Gmail" pour lancer l'analyse.</p>
+      </div>`;
+    return;
+  }
+
+  container.innerHTML = items.map(item => {
+    const promos = item.extracted_promos || [];
+    const badges = promos.map(p => {
+      if (p.type === 'discount_pct') {
+        const label = p.max ? `-${p.min}% à -${p.max}%` : `-${p.min}%`;
+        return `<span class="promo-badge">${label}</span>`;
+      }
+      if (p.type === 'price') {
+        return `<span class="promo-badge">${p.sale}€ <s style="opacity:.6">${p.original}€</s></span>`;
+      }
+      if (p.type === 'brand_sale') {
+        return `<span class="badge badge-muted">🏷 ${escHtml(p.brand)}</span>`;
+      }
+      return '';
+    }).join(' ');
+
+    return `
+      <div class="card" style="margin-bottom:.75rem;padding:1rem 1.25rem">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+          <div>
+            <div style="font-weight:600;margin-bottom:.25rem">${escHtml(item.subject)}</div>
+            <div style="font-size:.8rem;color:var(--text-muted)">${escHtml(item.sender)} · ${formatDate(item.received_at)}</div>
+            ${item.snippet ? `<div style="font-size:.85rem;color:var(--text-secondary);margin-top:.4rem;opacity:.8">${escHtml(item.snippet.slice(0, 120))}…</div>` : ''}
+          </div>
+          <div style="display:flex;gap:.4rem;flex-wrap:wrap;flex-shrink:0">${badges || '<span style="color:var(--text-muted);font-size:.8rem">Aucune promo extraite</span>'}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+document.getElementById('gmailScanBtn2').addEventListener('click', async () => {
+  const btn = document.getElementById('gmailScanBtn2');
+  btn.disabled = true;
+  btn.textContent = '⏳ Scan...';
+  try {
+    const data = await API.post('/gmail/scan', {});
+    toast(`${data.saved} email(s) enregistré(s) sur ${data.scanned} trouvé(s)`, 'success');
+    loadGmailPromos();
+  } catch (err) {
+    toast(`Erreur : ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '📧 Scanner Gmail';
+  }
+});
+
 window.addEventListener('pagechange', (e) => {
   if (e.detail === 'promos') {
     loadPromoSources();
