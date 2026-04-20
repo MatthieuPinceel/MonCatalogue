@@ -116,24 +116,40 @@
 
     <!-- ========== PAGE : PROMOS ========== -->
     <section class="page" id="page-promos">
-      <div class="page-toolbar">
-        <div class="filters">
-          <select id="promoSourceFilter" class="select">
-            <option value="">Toutes les sources</option>
-          </select>
-          <select id="promoCategoryFilter" class="select">
-            <option value="">Toutes les catégories</option>
-            <option value="TCG">TCG</option>
-            <option value="Lego">Lego</option>
-            <option value="JeuxVideo">Jeux Vidéo</option>
-            <option value="JeuxSociete">Jeux de Société</option>
-          </select>
-        </div>
-        <button class="btn btn-primary" id="scrapeNowBtn">⚡ Scraper maintenant</button>
+      <div class="tabs">
+        <button class="tab active" data-tab="promos-scrape">Sites marchands</button>
+        <button class="tab" data-tab="promos-gmail">📧 Emails (Gmail)</button>
       </div>
 
-      <div id="promoGrid" class="promo-grid"></div>
-      <div class="pagination" id="promoPagination"></div>
+      <!-- Onglet scraping -->
+      <div class="tab-content active" id="tab-promos-scrape">
+        <div class="page-toolbar" style="margin-top:1rem">
+          <div class="filters">
+            <select id="promoSourceFilter" class="select">
+              <option value="">Toutes les sources</option>
+            </select>
+            <select id="promoCategoryFilter" class="select">
+              <option value="">Toutes les catégories</option>
+              <option value="TCG">TCG</option>
+              <option value="Lego">Lego</option>
+              <option value="JeuxVideo">Jeux Vidéo</option>
+              <option value="JeuxSociete">Jeux de Société</option>
+            </select>
+          </div>
+          <button class="btn btn-primary" id="scrapeNowBtn">⚡ Scraper maintenant</button>
+        </div>
+        <div id="promoGrid" class="promo-grid"></div>
+        <div class="pagination" id="promoPagination"></div>
+      </div>
+
+      <!-- Onglet Gmail -->
+      <div class="tab-content" id="tab-promos-gmail">
+        <div class="page-toolbar" style="margin-top:1rem">
+          <span style="color:var(--text-muted);font-size:.9rem">Emails promos des dernières 24h</span>
+          <button class="btn btn-secondary" id="gmailScanBtn2">📧 Scanner Gmail</button>
+        </div>
+        <div id="gmailPromoList"></div>
+      </div>
     </section>
 
     <!-- ========== PAGE : STEAM ========== -->
