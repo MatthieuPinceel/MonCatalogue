@@ -184,17 +184,28 @@ function renderGmailPromos(items) {
         return '';
       }).join(' ');
 
+      const aiRows = (item.ai_summary || []).map(o => `
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:baseline;padding:.2rem 0;font-size:.82rem">
+          <span style="font-weight:600">${escHtml(o.produit || '')}</span>
+          ${o.prix     ? `<span class="promo-badge">${escHtml(o.prix)}</span>` : ''}
+          ${o.remise   ? `<span class="promo-badge" style="background:var(--success)">${escHtml(o.remise)}</span>` : ''}
+          ${o.condition ? `<span style="color:var(--text-muted)">${escHtml(o.condition)}</span>` : ''}
+          ${o.validite  ? `<span style="color:var(--text-muted);font-style:italic">${escHtml(o.validite)}</span>` : ''}
+        </div>`).join('');
+
       return `
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;padding:.85rem 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
-          <div style="flex:1;min-width:0">
-            <div style="font-weight:600;margin-bottom:.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(item.subject)}</div>
-            <div style="font-size:.78rem;color:var(--text-muted)">${escHtml(item.sender)} · ${formatDate(item.received_at)}</div>
-            ${item.snippet ? `<div style="font-size:.82rem;color:var(--text-secondary);margin-top:.3rem;opacity:.75">${escHtml(item.snippet.slice(0, 100))}…</div>` : ''}
+        <div style="padding:.85rem 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;margin-bottom:.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(item.subject)}</div>
+              <div style="font-size:.78rem;color:var(--text-muted)">${escHtml(item.sender)} · ${formatDate(item.received_at)}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-shrink:0;flex-wrap:wrap">
+              ${badges || ''}
+              ${item.gmail_link ? `<a href="${escHtml(item.gmail_link)}" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:.78rem;padding:.25rem .6rem;text-decoration:none">📨 Ouvrir</a>` : ''}
+            </div>
           </div>
-          <div style="display:flex;align-items:center;gap:.4rem;flex-shrink:0;flex-wrap:wrap">
-            ${badges || ''}
-            ${item.gmail_link ? `<a href="${escHtml(item.gmail_link)}" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:.78rem;padding:.25rem .6rem;text-decoration:none">📨 Ouvrir</a>` : ''}
-          </div>
+          ${aiRows ? `<div style="margin-top:.5rem;padding:.5rem .75rem;background:var(--bg);border-radius:6px;border-left:3px solid var(--accent)">${aiRows}</div>` : ''}
         </div>`;
     }).join('');
 
