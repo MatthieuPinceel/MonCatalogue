@@ -201,11 +201,13 @@ router.get('/promos', (req, res) => {
   try {
     const db   = getDb();
     const rows = db.prepare(
-      'SELECT * FROM gmail_promos ORDER BY received_at DESC LIMIT 50'
+      'SELECT * FROM gmail_promos ORDER BY received_at DESC LIMIT 100'
     ).all();
     res.json(rows.map(r => ({
       ...r,
-      extracted_promos: r.extracted_promos ? JSON.parse(r.extracted_promos) : []
+      category:         r.category || guessCategoryFromEmail((r.subject || '') + ' ' + (r.snippet || '') + ' ' + (r.sender || '')),
+      extracted_promos: r.extracted_promos ? JSON.parse(r.extracted_promos) : [],
+      gmail_link:       `https://mail.google.com/mail/u/0/#all/${r.message_id}`
     })));
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -255,26 +257,32 @@ async function scanPromoEmails(days = 7) {
     const date     = headers.find(h => h.name === 'Date')?.value    || '';
     const snippet  = detail.data.snippet || '';
 
-    // Extraction regex basique des promos
     const extracted = extractPromosFromText(subject + ' ' + snippet);
+    const category  = guessCategoryFromEmail(subject + ' ' + snippet + ' ' + sender);
 
     db.prepare(`
       INSERT OR IGNORE INTO gmail_promos
-        (message_id, subject, sender, snippet, extracted_promos, received_at, processed_at, used_ai)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now'), 0)
-    `).run(msg.id, subject, sender, snippet, JSON.stringify(extracted), date);
+        (message_id, subject, sender, snippet, extracted_promos, category, received_at, processed_at, used_ai)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), 0)
+    `).run(msg.id, subject, sender, snippet, JSON.stringify(extracted), category, date);
 
-    saved.push({ message_id: msg.id, subject, sender, extracted });
+    saved.push({ message_id: msg.id, subject, sender, extracted, category });
   }
 
   logger.info(`[Gmail] ${saved.length} email(s) enregistré(s)`);
   return { scanned: messages.length, saved: saved.length, items: saved };
 }
 
-/**
- * Extraction regex de promotions depuis un texte (subject + snippet).
- * Ne nécessite pas Claude Haiku.
- */
+function guessCategoryFromEmail(text) {
+  const t = text.toLowerCase();
+  if (/pok[eé]mon|lorcana|magic|yu-?gi-?oh|carte(s)?\s*(tcg|trading)|booster|deck/.test(t)) return 'TCG';
+  if (/\blego\b/.test(t)) return 'Lego';
+  if (/jeux?\s*vid[eé]o|playstation|xbox|nintendo|steam|gaming|ps[45]\b|switch/.test(t)) return 'JeuxVideo';
+  if (/jeux?\s*de\s*soci[eé]t[eé]|plateau|boardgame|asmodee|ravensburger/.test(t)) return 'JeuxSociete';
+  if (/veepee|vente.priv[eé]e|vente\s+flash/.test(t)) return 'VentePrivee';
+  return 'Général';
+}
+
 function extractPromosFromText(text) {
   const promos = [];
   const seen   = new Set();
