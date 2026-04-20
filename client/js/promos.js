@@ -120,6 +120,120 @@ async function loadPromoSources() {
   } catch (e) { /* silencieux */ }
 }
 
+// ── Onglet Gmail : charger au clic ────────────────────────────
+document.querySelector('[data-tab="promos-gmail"]').addEventListener('click', loadGmailPromos);
+
+// ── Promos Gmail ───────────────────────────────────────────────
+async function loadGmailPromos() {
+  const container = document.getElementById('gmailPromoList');
+  container.innerHTML = '<p style="color:var(--text-muted);padding:1rem">Chargement...</p>';
+  try {
+    const items = await API.get('/gmail/promos');
+    renderGmailPromos(items);
+  } catch (err) {
+    container.innerHTML = `<p style="color:var(--danger);padding:1rem">Erreur : ${err.message}</p>`;
+  }
+}
+
+const GMAIL_CAT_ICONS = {
+  'TCG':         '🃏 TCG',
+  'Lego':        '🧱 Lego',
+  'JeuxVideo':   '🎮 Jeux Vidéo',
+  'JeuxSociete': '♟️ Jeux de Société',
+  'VentePrivee': '🏷️ Vente Privée',
+  'Général':     '📬 Général',
+};
+
+function renderGmailPromos(items) {
+  const container = document.getElementById('gmailPromoList');
+  if (!items.length) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">📧</div>
+        <p>Aucun email promo trouvé.<br>Clique sur "Scanner Gmail" pour lancer l'analyse.</p>
+      </div>`;
+    return;
+  }
+
+  // Grouper par catégorie
+  const groups = {};
+  items.forEach(item => {
+    const cat = item.category || 'Général';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(item);
+  });
+
+  const catOrder = ['TCG', 'Lego', 'JeuxVideo', 'JeuxSociete', 'VentePrivee', 'Général'];
+  const sortedCats = [...new Set([...catOrder, ...Object.keys(groups)])].filter(c => groups[c]);
+
+  container.innerHTML = sortedCats.map(cat => {
+    const catItems = groups[cat];
+    const catLabel = GMAIL_CAT_ICONS[cat] || cat;
+    const cards = catItems.map(item => {
+      const promos = item.extracted_promos || [];
+      const badges = promos.map(p => {
+        if (p.type === 'discount_pct') {
+          return `<span class="promo-badge">${p.max ? `-${p.min}% à -${p.max}%` : `-${p.min}%`}</span>`;
+        }
+        if (p.type === 'price') {
+          return `<span class="promo-badge">${p.sale}€ <s style="opacity:.6">${p.original}€</s></span>`;
+        }
+        if (p.type === 'brand_sale') {
+          return `<span class="badge badge-muted">🏷 ${escHtml(p.brand)}</span>`;
+        }
+        return '';
+      }).join(' ');
+
+      const aiRows = (item.ai_summary || []).map(o => `
+        <div style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:baseline;padding:.2rem 0;font-size:.82rem">
+          <span style="font-weight:600">${escHtml(o.produit || '')}</span>
+          ${o.prix     ? `<span class="promo-badge">${escHtml(o.prix)}</span>` : ''}
+          ${o.remise   ? `<span class="promo-badge" style="background:var(--success)">${escHtml(o.remise)}</span>` : ''}
+          ${o.condition ? `<span style="color:var(--text-muted)">${escHtml(o.condition)}</span>` : ''}
+          ${o.validite  ? `<span style="color:var(--text-muted);font-style:italic">${escHtml(o.validite)}</span>` : ''}
+        </div>`).join('');
+
+      return `
+        <div style="padding:.85rem 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:600;margin-bottom:.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(item.subject)}</div>
+              <div style="font-size:.78rem;color:var(--text-muted)">${escHtml(item.sender)} · ${formatDate(item.received_at)}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:.4rem;flex-shrink:0;flex-wrap:wrap">
+              ${badges || ''}
+              ${item.gmail_link ? `<a href="${escHtml(item.gmail_link)}" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:.78rem;padding:.25rem .6rem;text-decoration:none">📨 Ouvrir</a>` : ''}
+            </div>
+          </div>
+          ${aiRows ? `<div style="margin-top:.5rem;padding:.5rem .75rem;background:var(--bg);border-radius:6px;border-left:3px solid var(--accent)">${aiRows}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    const catId = `gmail-cat-${cat.replace(/\s/g,'_')}`;
+    return `
+      <div class="card" style="margin-bottom:1rem">
+        <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none"
+             onclick="toggleGmailCat('${catId}')">
+          <h3 class="card-title" style="margin:0">${catLabel} <span style="font-weight:400;font-size:.85rem;color:var(--text-muted)">(${catItems.length})</span></h3>
+          <span id="${catId}-icon" style="color:var(--text-muted);font-size:1.1rem;transition:transform .2s">▾</span>
+        </div>
+        <div id="${catId}" style="margin-top:.5rem">${cards}</div>
+      </div>`;
+  }).join('');
+}
+
+function toggleGmailCat(id) {
+  const body = document.getElementById(id);
+  const icon = document.getElementById(`${id}-icon`);
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? '' : 'none';
+  icon.style.transform = collapsed ? '' : 'rotate(-90deg)';
+}
+window.toggleGmailCat = toggleGmailCat;
+
+document.getElementById('gmailReloadBtn').addEventListener('click', loadGmailPromos);
+
+
 window.addEventListener('pagechange', (e) => {
   if (e.detail === 'promos') {
     loadPromoSources();

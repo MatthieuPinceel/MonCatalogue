@@ -119,4 +119,70 @@ async function callHaiku({ systemPrompt, userMessage, purpose, maxTokens = 1024 
   });
 }
 
-module.exports = { callHaiku, getMonthlySpend };
+/**
+ * Appelle Claude Haiku Vision avec des images (URLs publiques).
+ * @param {string[]} imageUrls   URLs des images à analyser
+ * @param {string}   prompt      Question/instruction
+ * @param {string}   [purpose]
+ * @param {number}   [maxTokens]
+ */
+async function callHaikuVision({ images, prompt, purpose, maxTokens = 1024 }) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY non configurée');
+
+  const spend = getMonthlySpend();
+  if (spend >= LIMIT_USD) {
+    logger.warn(`[Anthropic] Budget atteint (${spend.toFixed(4)} $)`);
+    throw new Error(`Budget Anthropic mensuel épuisé`);
+  }
+
+  // images : [{ data: base64string, mediaType: 'image/jpeg' }]
+  const content = images.map(img => ({
+    type: 'image',
+    source: { type: 'base64', media_type: img.mediaType || 'image/jpeg', data: img.data }
+  }));
+  content.push({ type: 'text', text: prompt });
+
+  const body = JSON.stringify({
+    model: MODEL,
+    max_tokens: maxTokens,
+    messages: [{ role: 'user', content }]
+  });
+
+  logger.info(`[Anthropic/Vision] ${images.length} image(s) — budget restant : ${(LIMIT_USD - spend).toFixed(4)} $`);
+
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: 'api.anthropic.com',
+      path: '/v1/messages',
+      method: 'POST',
+      headers: {
+        'Content-Type':      'application/json',
+        'x-api-key':         apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Length':    Buffer.byteLength(body)
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.error) return reject(new Error(`Anthropic: ${json.error.message}`));
+          const text         = json.content?.[0]?.text || '';
+          const tokensInput  = json.usage?.input_tokens  || 0;
+          const tokensOutput = json.usage?.output_tokens || 0;
+          const costUsd      = tokensInput * COST_INPUT + tokensOutput * COST_OUTPUT;
+          recordUsage({ model: MODEL, tokensInput, tokensOutput, costUsd, purpose });
+          logger.info(`[Anthropic/Vision] OK — ${tokensInput}+${tokensOutput} tokens, ${costUsd.toFixed(6)} $`);
+          resolve({ text, tokensInput, tokensOutput, costUsd });
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+module.exports = { callHaiku, callHaikuVision, getMonthlySpend };

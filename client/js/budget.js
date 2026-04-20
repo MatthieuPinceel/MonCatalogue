@@ -25,15 +25,37 @@ async function loadBudget() {
   }
 }
 
+function renderBudgetTotal(summary) {
+  const total_spent = summary.reduce((s, r) => s + r.spent, 0);
+  const total_limit = summary.reduce((s, r) => s + r.limit, 0);
+  const pct   = total_limit > 0 ? Math.min((total_spent / total_limit) * 100, 100) : 0;
+  const color = total_spent > total_limit ? 'var(--danger)' : pct > 80 ? 'var(--warning)' : 'var(--success)';
+  document.getElementById('budgetTotal').innerHTML = `
+    <div class="card" style="padding:1rem 1.25rem">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem">
+        <span style="font-weight:600">Budget total du mois</span>
+        <span style="font-size:.9rem;color:var(--text-muted)">${formatPrice(total_spent)} / ${formatPrice(total_limit)}</span>
+      </div>
+      <div style="height:10px;background:var(--border);border-radius:5px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:${color};transition:width .4s"></div>
+      </div>
+      <div style="text-align:right;font-size:.75rem;color:var(--text-muted);margin-top:4px">${pct.toFixed(0)}% utilisé — restant : ${formatPrice(Math.max(0, total_limit - total_spent))}</div>
+    </div>`;
+}
+
 function renderBudgetGrid(summary) {
   const grid = document.getElementById('budgetGrid');
+  renderBudgetTotal(summary);
   grid.innerHTML = summary.map(s => {
-    const pct  = s.limit > 0 ? Math.min((s.spent / s.limit) * 100, 100) : 0;
-    const cls  = s.over_budget ? 'budget-over' : pct > 80 ? 'budget-warn' : 'budget-ok';
+    const pct   = s.limit > 0 ? Math.min((s.spent / s.limit) * 100, 100) : 0;
+    const cls   = s.over_budget ? 'budget-over' : pct > 80 ? 'budget-warn' : 'budget-ok';
     const label = s.category.replace('TCG_', 'TCG ');
     return `
       <div class="budget-cat-card ${cls}">
-        <div class="budget-cat-name">${label}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="budget-cat-name">${label}</div>
+          <button class="btn-icon" onclick="editCategoryLimit('${s.category}', ${s.limit})" title="Modifier le budget">✏️</button>
+        </div>
         <div class="budget-cat-bar">
           <div class="budget-cat-fill" style="width:${pct}%"></div>
         </div>
@@ -165,6 +187,106 @@ async function deletePurchase(id) {
   }
 }
 
+// ── Gérer tous les budgets ────────────────────────────────────
+const CATEGORIES = [
+  { key: 'TCG_Pokemon',  label: 'TCG Pokémon' },
+  { key: 'TCG_Lorcana',  label: 'TCG Lorcana' },
+  { key: 'Lego',         label: 'Lego' },
+  { key: 'JeuxVideo',    label: 'Jeux Vidéo' },
+  { key: 'JeuxSociete',  label: 'Jeux de Société' },
+];
+
+document.getElementById('editLimitsBtn').addEventListener('click', async () => {
+  let limits = {};
+  try { limits = Object.fromEntries((await API.get('/budget/limits')).map(l => [l.category, l.monthly_limit])); }
+  catch (e) {}
+
+  const inputs = CATEGORIES.map(c => `
+    <div class="form-row" style="align-items:center">
+      <div class="form-group" style="flex:1.5">
+        <label class="form-label">${c.label}</label>
+      </div>
+      <div class="form-group" style="flex:1">
+        <input name="${c.key}" class="input" type="number" step="0.01" min="0"
+          value="${limits[c.key] || 0}" placeholder="0.00" />
+      </div>
+    </div>`).join('');
+
+  const totalCurrent = CATEGORIES.reduce((s, c) => s + (limits[c.key] || 0), 0);
+
+  Modal.open('⚙️ Gérer les budgets mensuels', `
+    <form id="limitsForm">
+      <p style="color:var(--text-muted);font-size:.85rem;margin-bottom:1rem">
+        Budget total actuel : <strong>${formatPrice(totalCurrent)}</strong>
+      </p>
+      ${inputs}
+      <div id="limitsTotal" style="margin:.75rem 0;padding:.75rem;background:var(--bg);border-radius:8px;font-size:.9rem">
+        Nouveau total : <strong id="limitsTotalVal">${formatPrice(totalCurrent)}</strong>
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" onclick="Modal.close()">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  `);
+
+  // Recalcul total en temps réel
+  document.getElementById('limitsForm').querySelectorAll('input').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const total = CATEGORIES.reduce((s, c) => {
+        const v = parseFloat(document.querySelector(`[name="${c.key}"]`)?.value || 0);
+        return s + (isNaN(v) ? 0 : v);
+      }, 0);
+      document.getElementById('limitsTotalVal').textContent = formatPrice(total);
+    });
+  });
+
+  document.getElementById('limitsForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await Promise.all(CATEGORIES.map(c => {
+        const val = parseFloat(document.querySelector(`[name="${c.key}"]`).value || 0);
+        return API.put(`/budget/limits/${c.key}`, { monthly_limit: val });
+      }));
+      toast('Budgets mis à jour !', 'success');
+      Modal.close();
+      loadBudget();
+    } catch (err) {
+      toast(`Erreur : ${err.message}`, 'error');
+    }
+  });
+});
+
+// ── Modifier un budget individuel ─────────────────────────────
+function editCategoryLimit(category, currentLimit) {
+  const label = CATEGORIES.find(c => c.key === category)?.label || category;
+  Modal.open(`Budget — ${label}`, `
+    <form id="oneLimitForm">
+      <div class="form-group">
+        <label class="form-label">Limite mensuelle (€)</label>
+        <input name="monthly_limit" class="input" type="number" step="0.01" min="0"
+          value="${currentLimit}" autofocus />
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" onclick="Modal.close()">Annuler</button>
+        <button type="submit" class="btn btn-primary">Enregistrer</button>
+      </div>
+    </form>
+  `);
+  document.getElementById('oneLimitForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const val = parseFloat(e.target.monthly_limit.value);
+    try {
+      await API.put(`/budget/limits/${category}`, { monthly_limit: val });
+      toast(`Budget ${label} mis à jour !`, 'success');
+      Modal.close();
+      loadBudget();
+    } catch (err) {
+      toast(`Erreur : ${err.message}`, 'error');
+    }
+  });
+}
+
 document.getElementById('budgetMonth').addEventListener('change', loadBudget);
 
 window.addEventListener('pagechange', (e) => {
@@ -172,3 +294,4 @@ window.addEventListener('pagechange', (e) => {
 });
 
 window.deletePurchase = deletePurchase;
+window.editCategoryLimit = editCategoryLimit;

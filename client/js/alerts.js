@@ -146,6 +146,46 @@ async function deleteAlert(id) {
   }
 }
 
+document.getElementById('gmailScanBtn').addEventListener('click', async () => {
+  const btn    = document.getElementById('gmailScanBtn');
+  const status = document.getElementById('gmailScanStatus');
+  const days   = document.getElementById('gmailScanDays').value;
+  btn.disabled = true;
+  btn.textContent = '⏳ Scan en cours...';
+  status.textContent = 'Analyse des images avec Claude Vision…';
+  try {
+    const data = await API.post(`/gmail/scan?days=${days}`, {});
+    const aiCount = (data.items || []).filter(i => i.ai_summary).length;
+    toast(`${data.saved} email(s) enregistré(s) sur ${data.scanned} trouvé(s)`, 'success');
+    status.textContent = `✓ ${data.scanned} emails scannés · ${data.saved} nouveaux · ${aiCount} analysés par Vision`;
+  } catch (err) {
+    toast(`Erreur scan Gmail : ${err.message}`, 'error');
+    status.textContent = '';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '📧 Lancer le scan';
+  }
+});
+
+document.getElementById('gmailAnalyzeBtn').addEventListener('click', async () => {
+  const btn    = document.getElementById('gmailAnalyzeBtn');
+  const status = document.getElementById('gmailScanStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ Analyse en cours...';
+  status.textContent = 'Claude Vision analyse les images des emails…';
+  try {
+    const data = await API.post('/gmail/analyze', {});
+    toast(`Vision : ${data.analyzed} email(s) analysé(s) sur ${data.total}`, 'success');
+    status.textContent = `✓ ${data.analyzed}/${data.total} emails analysés par Vision`;
+  } catch (err) {
+    toast(`Erreur : ${err.message}`, 'error');
+    status.textContent = '';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🤖 Analyser avec Vision';
+  }
+});
+
 window.addEventListener('pagechange', (e) => {
   if (e.detail === 'alerts') loadAlerts();
 });

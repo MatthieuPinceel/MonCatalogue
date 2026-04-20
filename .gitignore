@@ -1,5 +1,6 @@
 node_modules/
 .env
+.env.example
 server/db/database.sqlite
 server/gmail_token.json
 server/logs/
