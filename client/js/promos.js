@@ -23,27 +23,20 @@ async function loadPromos(reset = false) {
   }
 }
 
-function renderPromos(items, reset) {
-  const grid = document.getElementById('promoGrid');
-  if (reset) grid.innerHTML = '';
+const CAT_LABELS = {
+  TCG:         '🃏 TCG',
+  Lego:        '🧱 Lego',
+  JeuxVideo:   '🎮 Jeux Vidéo',
+  JeuxSociete: '♟️ Jeux de Société',
+};
+const CAT_ORDER = ['TCG', 'Lego', 'JeuxVideo', 'JeuxSociete'];
 
-  if (!items.length && !grid.children.length) {
-    grid.innerHTML = `
-      <div class="empty-state" style="grid-column:1/-1">
-        <div class="empty-icon">🏷️</div>
-        <p>Aucune promo trouvée.<br>Lancez un scraping ou ajustez les filtres.</p>
-      </div>`;
-    return;
-  }
-
-  items.forEach(item => {
-    const card = document.createElement('div');
-    card.className = 'promo-card';
-    const imgEl = item.image_url
-      ? `<img class="promo-img" src="${escHtml(item.image_url)}" alt="" loading="lazy" onerror="this.style.display='none'">`
-      : `<div class="promo-img-placeholder">${categoryIcon(item.category)}</div>`;
-
-    card.innerHTML = `
+function buildPromoCard(item) {
+  const imgEl = item.image_url
+    ? `<img class="promo-img" src="${escHtml(item.image_url)}" alt="" loading="lazy" onerror="this.style.display='none'">`
+    : `<div class="promo-img-placeholder">${categoryIcon(item.category)}</div>`;
+  return `
+    <div class="promo-card">
       ${imgEl}
       <div class="promo-body">
         <div class="promo-title">${escHtml(item.title)}</div>
@@ -57,10 +50,68 @@ function renderPromos(items, reset) {
           ${item.url ? `· <a href="${escHtml(item.url)}" target="_blank" rel="noopener">voir</a>` : ''}
         </div>
       </div>
-    `;
-    grid.appendChild(card);
-  });
+    </div>`;
 }
+
+function renderPromos(items, reset) {
+  const grid       = document.getElementById('promoGrid');
+  const activeFilter = document.getElementById('promoCategoryFilter').value;
+
+  if (reset) grid.innerHTML = '';
+
+  if (!items.length && !grid.children.length) {
+    grid.innerHTML = `
+      <div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-icon">🏷️</div>
+        <p>Aucune promo trouvée.<br>Lancez un scraping ou ajustez les filtres.</p>
+      </div>`;
+    return;
+  }
+
+  // Sans filtre de catégorie → grouper par catégorie avec sections
+  if (!activeFilter) {
+    const groups = {};
+    items.forEach(item => {
+      const cat = item.category || 'Autre';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(item);
+    });
+    const ordered = [...new Set([...CAT_ORDER, ...Object.keys(groups)])].filter(c => groups[c]);
+
+    ordered.forEach(cat => {
+      const sectionId = `promo-cat-${cat}`;
+      let section = document.getElementById(sectionId);
+      if (!section) {
+        section = document.createElement('div');
+        section.id = sectionId;
+        section.className = 'promo-category-section';
+        section.innerHTML = `
+          <div class="promo-cat-header" onclick="togglePromoCat('${sectionId}')">
+            <span>${CAT_LABELS[cat] || ('🏷️ ' + cat)}</span>
+            <span class="promo-cat-count" id="${sectionId}-count"></span>
+            <span class="promo-cat-toggle" id="${sectionId}-icon">▾</span>
+          </div>
+          <div class="promo-cat-grid" id="${sectionId}-grid"></div>`;
+        grid.appendChild(section);
+      }
+      const catGrid = document.getElementById(`${sectionId}-grid`);
+      groups[cat].forEach(item => { catGrid.insertAdjacentHTML('beforeend', buildPromoCard(item)); });
+      document.getElementById(`${sectionId}-count`).textContent = `(${catGrid.children.length})`;
+    });
+  } else {
+    // Avec filtre → grille plate simple
+    items.forEach(item => { grid.insertAdjacentHTML('beforeend', buildPromoCard(item)); });
+  }
+}
+
+function togglePromoCat(sectionId) {
+  const g    = document.getElementById(`${sectionId}-grid`);
+  const icon = document.getElementById(`${sectionId}-icon`);
+  const open = g.style.display !== 'none';
+  g.style.display    = open ? 'none' : '';
+  icon.style.transform = open ? 'rotate(-90deg)' : '';
+}
+window.togglePromoCat = togglePromoCat;
 
 function renderPagination(total, offset, limit) {
   const container = document.getElementById('promoPagination');
