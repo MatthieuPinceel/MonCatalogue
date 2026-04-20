@@ -184,6 +184,8 @@ function renderGmailPromos(items) {
   }).join('');
 }
 
+document.getElementById('gmailReloadBtn').addEventListener('click', loadGmailPromos);
+
 document.getElementById('gmailScanBtn2').addEventListener('click', async () => {
   const btn = document.getElementById('gmailScanBtn2');
   btn.disabled = true;
