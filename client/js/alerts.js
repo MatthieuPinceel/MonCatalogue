@@ -146,6 +146,21 @@ async function deleteAlert(id) {
   }
 }
 
+document.getElementById('gmailScanBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('gmailScanBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Scan en cours...';
+  try {
+    const data = await API.post('/gmail/scan', {});
+    toast(`Gmail : ${data.saved} email(s) promo trouvé(s)`, 'success');
+  } catch (err) {
+    toast(`Erreur scan Gmail : ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '📧 Scanner les emails Gmail';
+  }
+});
+
 window.addEventListener('pagechange', (e) => {
   if (e.detail === 'alerts') loadAlerts();
 });
