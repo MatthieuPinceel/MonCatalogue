@@ -135,6 +135,15 @@ async function loadGmailPromos() {
   }
 }
 
+const GMAIL_CAT_ICONS = {
+  'TCG':         '🃏 TCG',
+  'Lego':        '🧱 Lego',
+  'JeuxVideo':   '🎮 Jeux Vidéo',
+  'JeuxSociete': '♟️ Jeux de Société',
+  'VentePrivee': '🏷️ Vente Privée',
+  'Général':     '📬 Général',
+};
+
 function renderGmailPromos(items) {
   const container = document.getElementById('gmailPromoList');
   if (!items.length) {
@@ -146,32 +155,53 @@ function renderGmailPromos(items) {
     return;
   }
 
-  container.innerHTML = items.map(item => {
-    const promos = item.extracted_promos || [];
-    const badges = promos.map(p => {
-      if (p.type === 'discount_pct') {
-        const label = p.max ? `-${p.min}% à -${p.max}%` : `-${p.min}%`;
-        return `<span class="promo-badge">${label}</span>`;
-      }
-      if (p.type === 'price') {
-        return `<span class="promo-badge">${p.sale}€ <s style="opacity:.6">${p.original}€</s></span>`;
-      }
-      if (p.type === 'brand_sale') {
-        return `<span class="badge badge-muted">🏷 ${escHtml(p.brand)}</span>`;
-      }
-      return '';
-    }).join(' ');
+  // Grouper par catégorie
+  const groups = {};
+  items.forEach(item => {
+    const cat = item.category || 'Général';
+    if (!groups[cat]) groups[cat] = [];
+    groups[cat].push(item);
+  });
+
+  const catOrder = ['TCG', 'Lego', 'JeuxVideo', 'JeuxSociete', 'VentePrivee', 'Général'];
+  const sortedCats = [...new Set([...catOrder, ...Object.keys(groups)])].filter(c => groups[c]);
+
+  container.innerHTML = sortedCats.map(cat => {
+    const catItems = groups[cat];
+    const catLabel = GMAIL_CAT_ICONS[cat] || cat;
+    const cards = catItems.map(item => {
+      const promos = item.extracted_promos || [];
+      const badges = promos.map(p => {
+        if (p.type === 'discount_pct') {
+          return `<span class="promo-badge">${p.max ? `-${p.min}% à -${p.max}%` : `-${p.min}%`}</span>`;
+        }
+        if (p.type === 'price') {
+          return `<span class="promo-badge">${p.sale}€ <s style="opacity:.6">${p.original}€</s></span>`;
+        }
+        if (p.type === 'brand_sale') {
+          return `<span class="badge badge-muted">🏷 ${escHtml(p.brand)}</span>`;
+        }
+        return '';
+      }).join(' ');
+
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;padding:.85rem 0;border-bottom:1px solid var(--border);flex-wrap:wrap">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;margin-bottom:.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(item.subject)}</div>
+            <div style="font-size:.78rem;color:var(--text-muted)">${escHtml(item.sender)} · ${formatDate(item.received_at)}</div>
+            ${item.snippet ? `<div style="font-size:.82rem;color:var(--text-secondary);margin-top:.3rem;opacity:.75">${escHtml(item.snippet.slice(0, 100))}…</div>` : ''}
+          </div>
+          <div style="display:flex;align-items:center;gap:.4rem;flex-shrink:0;flex-wrap:wrap">
+            ${badges || ''}
+            ${item.gmail_link ? `<a href="${escHtml(item.gmail_link)}" target="_blank" rel="noopener" class="btn btn-secondary" style="font-size:.78rem;padding:.25rem .6rem;text-decoration:none">📨 Ouvrir</a>` : ''}
+          </div>
+        </div>`;
+    }).join('');
 
     return `
-      <div class="card" style="margin-bottom:.75rem;padding:1rem 1.25rem">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap">
-          <div>
-            <div style="font-weight:600;margin-bottom:.25rem">${escHtml(item.subject)}</div>
-            <div style="font-size:.8rem;color:var(--text-muted)">${escHtml(item.sender)} · ${formatDate(item.received_at)}</div>
-            ${item.snippet ? `<div style="font-size:.85rem;color:var(--text-secondary);margin-top:.4rem;opacity:.8">${escHtml(item.snippet.slice(0, 120))}…</div>` : ''}
-          </div>
-          <div style="display:flex;gap:.4rem;flex-wrap:wrap;flex-shrink:0">${badges || '<span style="color:var(--text-muted);font-size:.8rem">Aucune promo extraite</span>'}</div>
-        </div>
+      <div class="card" style="margin-bottom:1rem">
+        <h3 class="card-title" style="margin-bottom:.5rem">${catLabel} <span style="font-weight:400;font-size:.85rem;color:var(--text-muted)">(${catItems.length})</span></h3>
+        ${cards}
       </div>`;
   }).join('');
 }
