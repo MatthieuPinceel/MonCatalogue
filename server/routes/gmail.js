@@ -184,7 +184,8 @@ router.post('/scan', async (req, res) => {
   }
 
   try {
-    const results = await scanPromoEmails();
+    const days    = parseInt(req.body.days || req.query.days || 7, 10);
+    const results = await scanPromoEmails(days);
     res.json(results);
   } catch (err) {
     logger.error(`[/api/gmail/scan] ${err.message}`);
@@ -214,10 +215,10 @@ router.get('/promos', (req, res) => {
 // ---------------------------------------------------------------
 // Scan emails promos (logique interne)
 // ---------------------------------------------------------------
-async function scanPromoEmails() {
+async function scanPromoEmails(days = 7) {
   const gmail  = google.gmail({ version: 'v1', auth: oauth2Client });
   const db     = getDb();
-  const since  = Math.floor(Date.now() / 1000) - 86400; // 24h
+  const since  = Math.floor(Date.now() / 1000) - (86400 * days);
 
   // Construire la requête Gmail : emails des expéditeurs promos
   const senderQuery = PROMO_SENDERS.map(s => `from:${s}`).join(' OR ');
@@ -228,7 +229,7 @@ async function scanPromoEmails() {
   const listRes = await gmail.users.messages.list({
     userId: 'me',
     q: query,
-    maxResults: 20
+    maxResults: 100
   });
 
   const messages = listRes.data.messages || [];
