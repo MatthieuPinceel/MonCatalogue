@@ -46,7 +46,8 @@ const PROMO_SENDERS = [
   'cdiscount',
   'smyths',
   'leclerc',
-  'auchan'
+  'auchan',
+  'veepee', 'vente-privee', 'venteprivee'
 ];
 
 let oauth2Client = null;
@@ -275,17 +276,29 @@ async function scanPromoEmails() {
  */
 function extractPromosFromText(text) {
   const promos = [];
+  const seen   = new Set();
 
-  // Patterns : "jusqu'à X% de réduction", "X€ au lieu de Y€", "-X%"
-  const pctPattern   = /(?:jusqu['\u2019]?[àa]?\s*)?[–\-]?\s*(\d{1,2})\s*%\s*(?:de\s*r[eé]duction|off|de\s*remise)?/gi;
+  const add = (p) => {
+    const key = JSON.stringify(p);
+    if (!seen.has(key)) { seen.add(key); promos.push(p); }
+  };
+
+  // "-30%", "jusqu'à -70%", "-50% à -70%"
+  const pctPattern = /(?:jusqu['\u2019]?[àa]?\s*)?[–\-]\s*(\d{1,2})\s*%(?:\s*[àa]\s*[–\-]?\s*(\d{1,2})\s*%)?/gi;
+  // "X€ au lieu de Y€"
   const pricePattern = /(\d+[,.]?\d*)\s*€\s*(?:au\s*lieu\s*de|instead of)\s*(\d+[,.]?\d*)\s*€/gi;
+  // Veepee brand sales : "Vente [Brand]" or "Nouvelle vente :"
+  const veepeePattern = /(?:nouvelle\s+vente\s*:\s*|vente\s+)([A-ZÀ-Ý][A-Za-zÀ-ÿ\s&]{2,30})/gi;
 
   let m;
   while ((m = pctPattern.exec(text)) !== null) {
-    promos.push({ type: 'discount_pct', value: parseInt(m[1], 10) });
+    add({ type: 'discount_pct', min: parseInt(m[1], 10), max: m[2] ? parseInt(m[2], 10) : null });
   }
   while ((m = pricePattern.exec(text)) !== null) {
-    promos.push({ type: 'price', sale: parseFloat(m[1].replace(',','.')), original: parseFloat(m[2].replace(',','.')) });
+    add({ type: 'price', sale: parseFloat(m[1].replace(',','.')), original: parseFloat(m[2].replace(',','.')) });
+  }
+  while ((m = veepeePattern.exec(text)) !== null) {
+    add({ type: 'brand_sale', brand: m[1].trim() });
   }
 
   return promos;
