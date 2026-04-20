@@ -36,6 +36,7 @@ app.use('/api/lego',    require('./routes/lego'));
 app.use('/api/budget',  require('./routes/budget'));
 app.use('/api/alerts',  require('./routes/alerts'));
 app.use('/api/prices',  require('./routes/prices'));
+app.use('/api/db',      require('./routes/db'));
 
 // ---------------------------------------------------------------
 // Route racine — API health
