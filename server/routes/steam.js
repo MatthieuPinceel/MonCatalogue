@@ -171,46 +171,60 @@ async function fetchSteamWishlist() {
 
   const loginSecure = process.env.STEAM_LOGIN_SECURE;
   const headers = {
-    'User-Agent':       process.env.SCRAPE_USER_AGENT ||
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept':           'application/json, text/javascript, */*; q=0.01',
-    'Accept-Language':  'fr-FR,fr;q=0.9,en;q=0.8',
-    'X-Requested-With': 'XMLHttpRequest',
-    'Referer':          `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/`,
+    'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
     ...(loginSecure ? { 'Cookie': `steamLoginSecure=${loginSecure}; birthtime=0` } : {})
   };
 
-  // Récupérer toutes les pages (50 jeux/page)
-  const allData = {};
-  let page = 0;
-  while (true) {
-    const url = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/wishlistdata/?p=${page}`;
-    const { data, status, headers: resHeaders } = await http.get(url, { headers });
-    logger.info(`[Steam/Wishlist] p=${page} status=${status} type=${typeof data} keys=${typeof data === 'object' ? Object.keys(data).length : JSON.stringify(data).slice(0,120)}`);
-    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) break;
-    Object.assign(allData, data);
-    page++;
-    if (page > 20) break; // sécurité : max 1000 jeux
+  const url  = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/`;
+  const { data: html } = await http.get(url, { headers, responseType: 'text' });
+
+  // Steam intègre les données dans la page sous forme de JSON dans un script
+  const match = html.match(/g_rgWishlistData\s*=\s*(\[[\s\S]*?\]);/) ||
+                html.match(/wishlist_data\s*=\s*(\[[\s\S]*?\]);/) ||
+                html.match(/"wishlist_items"\s*:\s*(\[[\s\S]*?\])/);
+
+  let wishlistItems = [];
+  if (match) {
+    try { wishlistItems = JSON.parse(match[1]); } catch (e) { logger.warn('[Steam/Wishlist] Échec parsing JSON embarqué'); }
   }
 
-  const db    = getDb();
-  const now   = new Date().toISOString();
+  // Fallback : données sous forme d'objet clé=appid
+  const matchObj = !wishlistItems.length &&
+    html.match(/g_rgWishlistData\s*=\s*(\{[\s\S]*?\});/);
+  if (matchObj) {
+    try {
+      const obj = JSON.parse(matchObj[1]);
+      wishlistItems = Object.entries(obj).map(([appid, info]) => ({ appid, ...info }));
+    } catch (e) {}
+  }
+
+  logger.info(`[Steam/Wishlist] Page HTML récupérée — ${wishlistItems.length} jeux trouvés dans la page`);
+
+  if (!wishlistItems.length) {
+    logger.warn('[Steam/Wishlist] Aucune donnée trouvée dans la page. Profil peut-être privé ou structure changée.');
+    return [];
+  }
+
+  const db   = getDb();
+  const now  = new Date().toISOString();
   const items = [];
 
-  for (const [appid, info] of Object.entries(allData)) {
-    if (!info.name) continue;
-    const subs  = info.subs || [];
+  for (const item of wishlistItems) {
+    const appid = item.appid || item.app_id;
+    if (!appid) continue;
+    const subs  = item.subs || [];
     const sub   = subs.find(s => s.discount_pct !== undefined) || subs[0] || {};
     const price = sub.price ? sub.price / 100 : null;
     const sale  = sub.discount_pct && price ? price * (1 - sub.discount_pct / 100) : price;
-
     items.push({
       appid:        parseInt(appid, 10),
-      name:         info.name,
+      name:         item.name || `App ${appid}`,
       price,
       sale_price:   sale,
       discount:     sub.discount_pct || 0,
-      release_date: info.release_string || null,
+      release_date: item.release_string || null,
       image_url:    `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
       store_url:    `https://store.steampowered.com/app/${appid}`,
       updated_at:   now
@@ -231,10 +245,9 @@ async function fetchSteamWishlist() {
       updated_at   = excluded.updated_at
   `);
 
-  const upsert = db.transaction((rows) => { for (const r of rows) stmt.run(r); });
-  upsert(items);
+  db.transaction((rows) => { for (const r of rows) stmt.run(r); })(items);
 
-  logger.info(`[Steam] Wishlist : ${items.length} jeux (${page} page(s)) — cookie: ${loginSecure ? 'oui' : 'non'}`);
+  logger.info(`[Steam] Wishlist : ${items.length} jeux enregistrés`);
   return db.prepare('SELECT * FROM steam_wishlist ORDER BY name ASC').all();
 }
 
