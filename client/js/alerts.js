@@ -167,6 +167,25 @@ document.getElementById('gmailScanBtn').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('gmailAnalyzeBtn').addEventListener('click', async () => {
+  const btn    = document.getElementById('gmailAnalyzeBtn');
+  const status = document.getElementById('gmailScanStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ Analyse en cours...';
+  status.textContent = 'Claude Vision analyse les images des emails…';
+  try {
+    const data = await API.post('/gmail/analyze', {});
+    toast(`Vision : ${data.analyzed} email(s) analysé(s) sur ${data.total}`, 'success');
+    status.textContent = `✓ ${data.analyzed}/${data.total} emails analysés par Vision`;
+  } catch (err) {
+    toast(`Erreur : ${err.message}`, 'error');
+    status.textContent = '';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🤖 Analyser avec Vision';
+  }
+});
+
 window.addEventListener('pagechange', (e) => {
   if (e.detail === 'alerts') loadAlerts();
 });
