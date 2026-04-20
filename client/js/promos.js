@@ -233,21 +233,6 @@ window.toggleGmailCat = toggleGmailCat;
 
 document.getElementById('gmailReloadBtn').addEventListener('click', loadGmailPromos);
 
-document.getElementById('gmailScanBtn2').addEventListener('click', async () => {
-  const btn = document.getElementById('gmailScanBtn2');
-  btn.disabled = true;
-  btn.textContent = '⏳ Scan...';
-  try {
-    const data = await API.post('/gmail/scan', {});
-    toast(`${data.saved} email(s) enregistré(s) sur ${data.scanned} trouvé(s)`, 'success');
-    loadGmailPromos();
-  } catch (err) {
-    toast(`Erreur : ${err.message}`, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '📧 Scanner Gmail';
-  }
-});
 
 window.addEventListener('pagechange', (e) => {
   if (e.detail === 'promos') {
