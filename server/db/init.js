@@ -21,6 +21,8 @@ function getDb() {
 function initDb() {
   const db = getDb();
   db.exec(SCHEMA);
+  // Migrations non destructives
+  try { db.exec(`ALTER TABLE gmail_promos ADD COLUMN category TEXT`); } catch (e) {}
   console.log(`[DB] Base initialisée : ${DB_PATH}`);
   return db;
 }
