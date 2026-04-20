@@ -272,9 +272,8 @@ async function scanPromoEmails(days = 7) {
   const db     = getDb();
   const since  = Math.floor(Date.now() / 1000) - (86400 * days);
 
-  // Construire la requête Gmail : emails des expéditeurs promos
-  const senderQuery = PROMO_SENDERS.map(s => `from:${s}`).join(' OR ');
-  const query       = `(${senderQuery}) after:${since}`;
+  // Uniquement les emails de l'onglet Promotions Gmail
+  const query = `category:promotions after:${since}`;
 
   logger.info(`[Gmail] Scan emails promos...`);
 
