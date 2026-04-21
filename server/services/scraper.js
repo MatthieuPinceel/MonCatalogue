@@ -44,10 +44,221 @@ function calcDiscount(original, sale) {
 }
 
 // ---------------------------------------------------------------
-// Stubs — sites toujours bloqués
+// Stubs
 // ---------------------------------------------------------------
-async function scrapeFnac()       { logger.info(`[Scraper] fnac — ignoré (anti-bot)`);  return []; }
-async function scrapeFuretDuNord(){ logger.info(`[Scraper] furetdunord — ignoré (403)`); return []; }
+async function scrapeFuretDuNord() { logger.info(`[Scraper] furetdunord — ignoré (403)`); return []; }
+
+// ---------------------------------------------------------------
+// FNAC — Chromium (anti-bot contourné)
+// ---------------------------------------------------------------
+async function scrapeFnacPage(url, category, itemType = 'promo') {
+  const { withPage } = require('./chromium');
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/Fnac] (${itemType}) — ${url}`);
+  try {
+    return await withPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector('.Article-article, [class*="Article-item"]', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        document.querySelectorAll('.Article-article').forEach(el => {
+          const title = (
+            el.querySelector('.Article-nameContainer, [class*="Article-desc"], h3')?.textContent?.trim() ||
+            el.querySelector('a[title]')?.title || ''
+          );
+          if (!title || title.length < 3) return;
+          results.push({
+            title,
+            price:    el.querySelector('.f-priceBox-price .userPrice, [class*="userPrice"], .f-priceBox-price')?.textContent?.trim() || '',
+            oldPrice: el.querySelector('.f-priceBox-oldPrice, [class*="oldPrice"]')?.textContent?.trim() || '',
+            img:      el.querySelector('img')?.src || el.querySelector('img')?.dataset?.src || '',
+            href:     el.querySelector('a')?.href || '',
+          });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const price    = normalizePrice(item.price, maxPrice);
+        if (!price) return null;
+        const original = normalizePrice(item.oldPrice, maxPrice);
+        return {
+          source: 'fnac', title: item.title, price, original_price: original,
+          discount_percent: calcDiscount(original, price),
+          url: item.href || url, image_url: item.img || null,
+          category: guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/Fnac] erreur : ${err.message}`);
+    return [];
+  }
+}
+
+async function scrapeFnac() {
+  return scrapeFnacPage('https://www.fnac.com/Ventes-flash-et-promotions/n-1940003/w-4', null, 'promo');
+}
+
+// ---------------------------------------------------------------
+// AMAZON — Chromium (anti-bot contourné, résultats variables)
+// ---------------------------------------------------------------
+async function scrapeAmazonPage(url, category, itemType = 'catalog') {
+  const { withPage } = require('./chromium');
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/Amazon] (${itemType}) — ${url}`);
+  try {
+    return await withPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        document.querySelectorAll('[data-component-type="s-search-result"]').forEach(el => {
+          const title = el.querySelector('h2 span')?.textContent?.trim() || '';
+          if (!title || title.length < 3) return;
+          const priceWhole = el.querySelector('.a-price[data-a-color="base"] .a-price-whole')?.textContent?.trim() || '';
+          const priceFrac  = el.querySelector('.a-price[data-a-color="base"] .a-price-fraction')?.textContent?.trim() || '';
+          const oldPriceEl = el.querySelector('.a-price[data-a-color="secondary"] .a-offscreen');
+          const price      = priceWhole ? `${priceWhole}.${priceFrac || '00'}` : '';
+          results.push({
+            title,
+            price,
+            oldPrice: oldPriceEl?.textContent?.trim() || '',
+            img:      el.querySelector('.s-image')?.src || '',
+            href:     el.querySelector('h2 a')?.href || '',
+          });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const price    = normalizePrice(item.price, maxPrice);
+        if (!price) return null;
+        const original = normalizePrice(item.oldPrice, maxPrice);
+        return {
+          source: 'amazon', title: item.title, price, original_price: original,
+          discount_percent: calcDiscount(original, price),
+          url: item.href || url, image_url: item.img || null,
+          category: guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/Amazon] erreur : ${err.message}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------
+// GOOGLE SHOPPING — Chromium (résultats comparateur de prix)
+// ---------------------------------------------------------------
+async function scrapeGoogleShoppingPage(query, category, itemType = 'catalog') {
+  const { withPage } = require('./chromium');
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=shop&hl=fr&gl=fr`;
+  logger.info(`[Chromium/GoogleShopping] "${query}"`);
+  try {
+    return await withPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      // Attendre les résultats shopping ou détecter un CAPTCHA
+      await page.waitForSelector('.sh-dgr__content, .sh-pr__product-results-grid, [data-docid]', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+
+      const isCaptcha = await page.evaluate(() =>
+        document.title.includes('unusual traffic') || !!document.querySelector('#captcha-form, #recaptcha')
+      );
+      if (isCaptcha) { logger.warn('[Chromium/GoogleShopping] CAPTCHA détecté, skip'); return []; }
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        // Sélecteurs Google Shopping (peuvent changer)
+        const cards = document.querySelectorAll('.sh-dgr__content, .VZTCjd, .sh-dlr__list-result');
+        cards.forEach(el => {
+          const title    = el.querySelector('h3, [class*="title"]')?.textContent?.trim() || '';
+          if (!title || title.length < 3) return;
+          const priceEl  = el.querySelector('[class*="price"], .a8Pemb, .HRLxBb, [aria-label*="€"]');
+          const price    = priceEl?.textContent?.trim() || priceEl?.getAttribute('aria-label') || '';
+          const merchant = el.querySelector('[class*="merchant"], .aULzUe, .E5ocAb')?.textContent?.trim() || '';
+          const imgEl    = el.querySelector('img');
+          const linkEl   = el.querySelector('a');
+          if (!price) return;
+          results.push({ title, price, merchant, img: imgEl?.src || '', href: linkEl?.href || '' });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const price = normalizePrice(item.price, maxPrice);
+        if (!price) return null;
+        const source = item.merchant ? `google/${item.merchant}` : 'google';
+        return {
+          source, title: item.title, price, original_price: null, discount_percent: null,
+          url: item.href || url, image_url: item.img || null,
+          category: guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/GoogleShopping] erreur : ${err.message}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------
+// IDEALO — comparateur de prix FR, Chromium
+// ---------------------------------------------------------------
+async function scrapeIdealoPage(url, category, itemType = 'catalog') {
+  const { withPage } = require('./chromium');
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/Idealo] (${itemType}) — ${url}`);
+  try {
+    return await withPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector('[class*="product"], .sr-resultList', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        document.querySelectorAll('[class*="productOffers-module__product"], .sr-resultList__item, [data-testid*="product"]').forEach(el => {
+          const title   = el.querySelector('[class*="title"], h3, h2, [itemprop="name"]')?.textContent?.trim() || '';
+          if (!title || title.length < 3) return;
+          const priceEl = el.querySelector('[class*="price"], [itemprop="price"], [class*="Price"]');
+          const price   = priceEl?.textContent?.trim() || priceEl?.getAttribute('content') || '';
+          const imgEl   = el.querySelector('img');
+          const linkEl  = el.querySelector('a');
+          if (!price) return;
+          results.push({ title, price, img: imgEl?.src || '', href: linkEl?.href || '' });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const price = normalizePrice(item.price, maxPrice);
+        if (!price) return null;
+        return {
+          source: 'idealo', title: item.title, price, original_price: null, discount_percent: null,
+          url: item.href || url, image_url: item.img || null,
+          category: guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/Idealo] erreur : ${err.message}`);
+    return [];
+  }
+}
 
 // ---------------------------------------------------------------
 // DEALABS — flux RSS (pas de scraping, XML public)
@@ -354,23 +565,26 @@ function guessCategoryFromTitle(title) {
 // Scrapers de promos
 // ---------------------------------------------------------------
 const SCRAPERS = {
-  // Sites avec pages promos dédiées
+  // Sites axios — pages promos dédiées
   kingjouet:              scrapeKingJouet,
   'kingjouet-promo-lego': () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/promotions/marque-lego/page1.htm', 'Lego', 'promo'),
   'kingjouet-promo-js':   () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/jeux-de-societe-promotion/page1.htm', 'JeuxSociete', 'promo'),
   micromania:             scrapeMicromania,
-  fnac:                   scrapeFnac,
   smyths:                 scrapeSmyths,
   furetdunord:            scrapeFuretDuNord,
   philibert:              scrapePhilibert,
   'philibert-occasions':  () => scrapePhilibertPage('https://www.philibertnet.com/fr/214-occasions', null, 'promo'),
   cultura:                scrapeCultura,
   'cultura-promo-jv':     () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/promotions-jeux-video.html', 'JeuxVideo', 'promo'),
-  // Dealabs RSS — pas de scraping, XML public, très fiable
+  // Dealabs RSS — XML public, fiable
   'dealabs-pokemon':      () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/pokemon',     'TCG'),
   'dealabs-lego':         () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/lego',        'Lego'),
   'dealabs-jv':           () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/jeux-video',  'JeuxVideo'),
   'dealabs-jouets':       () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/jeux-jouets', null),
+  // Chromium — sites anti-bot
+  fnac:                   scrapeFnac,
+  'fnac-pokemon':         () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4',  'TCG',  'promo'),
+  'fnac-lorcana':         () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4',  'TCG',  'promo'),
 };
 
 // ---------------------------------------------------------------
@@ -401,6 +615,22 @@ const CATALOG_SCRAPERS = {
   'smyths-tcg':        () => scrapeSmythsPage('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/cartes-a-collectionner/c/SM13010611', 'TCG', 'catalog'),
   'smyths-pokemon':    () => scrapeSmythsPage('https://www.smythstoys.com/fr/fr-fr/marques/pokemon/c/SM130208', 'TCG', 'catalog'),
   'smyths-lorcana':    () => scrapeSmythsPage('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/cartes-a-collectionner/cartes-lorcana/c/SM1301061105', 'TCG', 'catalog'),
+  // Fnac — catalogue Chromium
+  'fnac-pokemon-cat':  () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4',  'TCG', 'catalog'),
+  'fnac-lorcana-cat':  () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4',  'TCG', 'catalog'),
+  'fnac-lego-cat':     () => scrapeFnacPage('https://www.fnac.com/Lego/n-2218/w-4',              'Lego','catalog'),
+  // Amazon — catalogue Chromium
+  'amazon-pokemon':    () => scrapeAmazonPage('https://www.amazon.fr/s?k=cartes+pokemon&rh=n%3A322085011', 'TCG',  'catalog'),
+  'amazon-lorcana':    () => scrapeAmazonPage('https://www.amazon.fr/s?k=cartes+lorcana',                  'TCG',  'catalog'),
+  'amazon-lego':       () => scrapeAmazonPage('https://www.amazon.fr/s?k=lego&rh=n%3A322083011',           'Lego', 'catalog'),
+  // Google Shopping — comparateur Chromium
+  'google-pokemon':    () => scrapeGoogleShoppingPage('cartes pokemon booster',    'TCG',        'catalog'),
+  'google-lorcana':    () => scrapeGoogleShoppingPage('cartes lorcana booster',    'TCG',        'catalog'),
+  'google-lego':       () => scrapeGoogleShoppingPage('lego pokemon sets',         'Lego',       'catalog'),
+  'google-jv':         () => scrapeGoogleShoppingPage('jeux video promotions ps5', 'JeuxVideo',  'catalog'),
+  // Idealo — comparateur de prix français, Chromium
+  'idealo-pokemon':    () => scrapeIdealoPage('https://www.idealo.fr/cat/20338/cartes-pokemon.html',        'TCG',  'catalog'),
+  'idealo-lego':       () => scrapeIdealoPage('https://www.idealo.fr/cat/1484/lego.html',                   'Lego', 'catalog'),
 };
 
 async function scrapeAll(only) {

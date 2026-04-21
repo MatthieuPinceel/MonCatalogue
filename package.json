@@ -21,6 +21,8 @@
     "express": "^4.19.2",
     "googleapis": "^140.0.0",
     "node-cron": "^3.0.3",
+    "playwright": "^1.59.1",
+    "puppeteer": "^24.42.0",
     "winston": "^3.13.0"
   },
   "devDependencies": {
