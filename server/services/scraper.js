@@ -175,12 +175,17 @@ const SCRAPERS = {
 // ---------------------------------------------------------------
 // Scrapers de catalogue (pages catégories, hors promo)
 // ---------------------------------------------------------------
+// URLs vérifiées manuellement — désactiver si 404, corriger avec les bonnes URLs
 const CATALOG_SCRAPERS = {
-  'cultura-tcg':   () => scrapeCulturaPage('https://www.cultura.com/jeux/jeux-de-cartes-et-extension.html',  'TCG',         'catalog'),
-  'cultura-lego':  () => scrapeCulturaPage('https://www.cultura.com/jeux/jeux-de-construction.html',         'Lego',        'catalog'),
-  'cultura-jv':    () => scrapeCulturaPage('https://www.cultura.com/jeux-video.html',                        'JeuxVideo',   'catalog'),
-  'philibert-tcg': () => scrapePhilibertPage('https://www.philibertnet.com/fr/jeux-de-cartes-a-collectionner', 'TCG',       'catalog'),
-  'philibert-js':  () => scrapePhilibertPage('https://www.philibertnet.com/fr/jeux-de-societe',               'JeuxSociete','catalog'),
+  // ✅ Confirmées
+  'cultura-pokemon': () => scrapeCulturaPage('https://www.cultura.com/cartes-a-jouer/cartes-pokemon.html', 'TCG', 'catalog'),
+  'cultura-lorcana': () => scrapeCulturaPage('https://www.cultura.com/cartes-a-jouer/cartes-lorcana.html', 'TCG', 'catalog'),
+  // ❓ À corriger (URLs 404) — décommenter une fois les bonnes URLs trouvées
+  // 'cultura-magic':  () => scrapeCulturaPage('???', 'TCG', 'catalog'),
+  // 'cultura-lego':   () => scrapeCulturaPage('???', 'Lego', 'catalog'),
+  // 'cultura-jv':     () => scrapeCulturaPage('???', 'JeuxVideo', 'catalog'),
+  // 'philibert-tcg':  () => scrapePhilibertPage('???', 'TCG', 'catalog'),
+  // 'philibert-js':   () => scrapePhilibertPage('???', 'JeuxSociete', 'catalog'),
 };
 
 async function scrapeAll(only) {
