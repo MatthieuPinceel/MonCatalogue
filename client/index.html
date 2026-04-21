@@ -198,6 +198,7 @@
     <section class="page" id="page-tcg">
       <div class="tabs">
         <button class="tab active" data-tab="tcg-collection">Ma Collection</button>
+        <button class="tab" data-tab="tcg-wishlist">⭐ Wishlist</button>
         <button class="tab" data-tab="tcg-search">Recherche</button>
         <button class="tab" data-tab="tcg-missing">Cartes manquantes</button>
       </div>
@@ -224,6 +225,23 @@
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Wishlist -->
+      <div id="tcg-wishlist" class="tab-content">
+        <div class="page-toolbar">
+          <select id="wishlistGameFilter" class="select">
+            <option value="">Tous les jeux</option>
+            <option value="pokemon">Pokémon</option>
+            <option value="lorcana">Lorcana</option>
+            <option value="magic">Magic</option>
+            <option value="one_piece">One Piece</option>
+            <option value="autre">Autre</option>
+          </select>
+          <button class="btn btn-primary" id="addWishlistBtn">+ Ajouter</button>
+          <button class="btn btn-secondary" id="refreshWishlistPricesBtn">🔄 Actualiser les prix</button>
+        </div>
+        <div id="tcgWishlistGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:8px"></div>
       </div>
 
       <!-- Search -->
