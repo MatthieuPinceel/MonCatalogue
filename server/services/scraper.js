@@ -163,29 +163,35 @@ function guessCategoryFromTitle(title) {
 // Scrapers de promos
 // ---------------------------------------------------------------
 const SCRAPERS = {
-  kingjouet:   scrapeKingJouet,
-  micromania:  scrapeMicromania,
-  fnac:        scrapeFnac,
-  smyths:      scrapeSmyths,
-  furetdunord: scrapeFuretDuNord,
-  philibert:   scrapePhilibert,
-  cultura:     scrapeCultura
+  kingjouet:            scrapeKingJouet,
+  micromania:           scrapeMicromania,
+  fnac:                 scrapeFnac,
+  smyths:               scrapeSmyths,
+  furetdunord:          scrapeFuretDuNord,
+  philibert:            scrapePhilibert,
+  'philibert-occasions': () => scrapePhilibertPage('https://www.philibertnet.com/fr/214-occasions', null, 'promo'),
+  cultura:              scrapeCultura,
+  'cultura-promo-jv':   () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/promotions-jeux-video.html', 'JeuxVideo', 'promo'),
 };
 
 // ---------------------------------------------------------------
 // Scrapers de catalogue (pages catégories, hors promo)
 // ---------------------------------------------------------------
-// URLs vérifiées manuellement — désactiver si 404, corriger avec les bonnes URLs
+// URLs vérifiées manuellement — à mettre à jour si une page disparaît
 const CATALOG_SCRAPERS = {
-  // ✅ Confirmées
-  'cultura-pokemon': () => scrapeCulturaPage('https://www.cultura.com/cartes-a-jouer/cartes-pokemon.html', 'TCG', 'catalog'),
-  'cultura-lorcana': () => scrapeCulturaPage('https://www.cultura.com/cartes-a-jouer/cartes-lorcana.html', 'TCG', 'catalog'),
-  // ❓ À corriger (URLs 404) — décommenter une fois les bonnes URLs trouvées
-  // 'cultura-magic':  () => scrapeCulturaPage('???', 'TCG', 'catalog'),
-  // 'cultura-lego':   () => scrapeCulturaPage('???', 'Lego', 'catalog'),
-  // 'cultura-jv':     () => scrapeCulturaPage('???', 'JeuxVideo', 'catalog'),
-  // 'philibert-tcg':  () => scrapePhilibertPage('???', 'TCG', 'catalog'),
-  // 'philibert-js':   () => scrapePhilibertPage('???', 'JeuxSociete', 'catalog'),
+  // Cultura — TCG
+  'cultura-pokemon': () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-pokemon.html',  'TCG',       'catalog'),
+  'cultura-lorcana': () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-lorcana.html',  'TCG',       'catalog'),
+  'cultura-magic':   () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-magic.html',    'TCG',       'catalog'),
+  // Cultura — Lego & Jeux Vidéo
+  'cultura-lego':    () => scrapeCulturaPage('https://www.cultura.com/univers-enfant/jeux-jouets/jeux-de-construction/lego/tous-les-produits-lego.html', 'Lego',      'catalog'),
+  'cultura-jv':      () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles.html',                                'JeuxVideo',  'catalog'),
+  // Philibert — TCG
+  'philibert-pokemon': () => scrapePhilibertPage('https://www.philibertnet.com/fr/212-pokemon',    'TCG',        'catalog'),
+  'philibert-lorcana': () => scrapePhilibertPage('https://www.philibertnet.com/fr/15880-lorcana',  'TCG',        'catalog'),
+  'philibert-tcg':     () => scrapePhilibertPage('https://www.philibertnet.com/fr/119-jeux-de-cartes', 'TCG',    'catalog'),
+  // Philibert — Jeux de société
+  'philibert-js':      () => scrapePhilibertPage('https://www.philibertnet.com/fr/50-jeux-de-societe', 'JeuxSociete', 'catalog'),
 };
 
 async function scrapeAll(only) {
