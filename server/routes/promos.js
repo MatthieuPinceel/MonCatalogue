@@ -3,24 +3,25 @@
 const express  = require('express');
 const router   = express.Router();
 const { getDb } = require('../db/init');
-const { scrapeAll } = require('../services/scraper');
+const { scrapeAll, scrapeAllCatalog } = require('../services/scraper');
 const logger   = require('../services/logger');
 
 /**
  * GET /api/promos
- * Retourne les promos en base (avec filtres optionnels).
- * Query params : source, category, limit (défaut 50), offset
+ * Retourne les promos/catalogue en base (avec filtres optionnels).
+ * Query params : source, category, item_type, sort, promo_only, limit, offset
  */
 router.get('/', (req, res) => {
   try {
-    const db       = getDb();
-    const { source, category, sort, promo_only, limit = 50, offset = 0 } = req.query;
+    const db = getDb();
+    const { source, category, item_type, sort, promo_only, limit = 50, offset = 0 } = req.query;
 
     let sql    = 'SELECT * FROM promos WHERE 1=1';
     const args = [];
 
-    if (source)     { sql += ' AND source = ?';   args.push(source); }
-    if (category)   { sql += ' AND category = ?'; args.push(category); }
+    if (source)     { sql += ' AND source = ?';     args.push(source); }
+    if (category)   { sql += ' AND category = ?';   args.push(category); }
+    if (item_type)  { sql += ' AND item_type = ?';  args.push(item_type); }
     if (promo_only === '1') { sql += ' AND discount_percent IS NOT NULL AND original_price IS NOT NULL'; }
 
     const ORDER = {
@@ -39,10 +40,12 @@ router.get('/', (req, res) => {
     const rows = db.prepare(sql).all(...args);
 
     // Total pour la pagination
-    let countSql = 'SELECT COUNT(*) as total FROM promos WHERE 1=1';
+    let countSql  = 'SELECT COUNT(*) as total FROM promos WHERE 1=1';
     const countArgs = [];
-    if (source) { countSql += ' AND source = ?'; countArgs.push(source); }
-    if (category) { countSql += ' AND category = ?'; countArgs.push(category); }
+    if (source)    { countSql += ' AND source = ?';    countArgs.push(source); }
+    if (category)  { countSql += ' AND category = ?';  countArgs.push(category); }
+    if (item_type) { countSql += ' AND item_type = ?'; countArgs.push(item_type); }
+    if (promo_only === '1') { countSql += ' AND discount_percent IS NOT NULL AND original_price IS NOT NULL'; }
     const { total } = db.prepare(countSql).get(...countArgs);
 
     res.json({ total, limit: parseInt(limit, 10), offset: parseInt(offset, 10), data: rows });
@@ -71,13 +74,11 @@ router.get('/sources', (req, res) => {
 
 /**
  * POST /api/promos/scrape
- * Déclenche manuellement le scraping (limité à certaines sources si précisé).
- * Body : { sources: ['kingjouet', 'micromania'] }  (optionnel)
+ * Déclenche manuellement le scraping des pages promos.
  */
 router.post('/scrape', async (req, res) => {
   const { sources } = req.body || {};
-  logger.info(`[/api/promos/scrape] Scraping manuel — sources : ${sources ? sources.join(',') : 'toutes'}`);
-
+  logger.info(`[/api/promos/scrape] Scraping promos — sources : ${sources ? sources.join(',') : 'toutes'}`);
   try {
     const items = await scrapeAll(sources);
     const saved = savePromos(items);
@@ -89,21 +90,38 @@ router.post('/scrape', async (req, res) => {
 });
 
 /**
+ * POST /api/promos/scrape-catalog
+ * Déclenche le scraping des pages catalogue (produits hors promo).
+ */
+router.post('/scrape-catalog', async (req, res) => {
+  const { sources } = req.body || {};
+  logger.info(`[/api/promos/scrape-catalog] Scraping catalogue — sources : ${sources ? sources.join(',') : 'toutes'}`);
+  try {
+    const items = await scrapeAllCatalog(sources);
+    const saved = savePromos(items);
+    res.json({ scraped: items.length, saved, sources: sources || 'all' });
+  } catch (err) {
+    logger.error(`[/api/promos/scrape-catalog] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /api/promos/stats
  * Statistiques rapides pour le dashboard.
  */
 router.get('/stats', (req, res) => {
   try {
-    const db = getDb();
+    const db    = getDb();
     const today = new Date().toISOString().slice(0, 10);
     const stats = {
-      total:         db.prepare('SELECT COUNT(*) as n FROM promos').get().n,
-      today:         db.prepare("SELECT COUNT(*) as n FROM promos WHERE scraped_at >= ?").get(today + 'T00:00:00').n,
-      by_category:   db.prepare("SELECT category, COUNT(*) as n FROM promos GROUP BY category").all(),
+      total:         db.prepare("SELECT COUNT(*) as n FROM promos WHERE item_type = 'promo' OR item_type IS NULL").get().n,
+      today:         db.prepare("SELECT COUNT(*) as n FROM promos WHERE scraped_at >= ? AND (item_type = 'promo' OR item_type IS NULL)").get(today + 'T00:00:00').n,
+      by_category:   db.prepare("SELECT category, COUNT(*) as n FROM promos WHERE item_type = 'promo' OR item_type IS NULL GROUP BY category").all(),
       top_discounts: db.prepare(
         `SELECT title, source, price, original_price, discount_percent
          FROM promos
-         WHERE discount_percent IS NOT NULL
+         WHERE discount_percent IS NOT NULL AND (item_type = 'promo' OR item_type IS NULL)
          ORDER BY discount_percent DESC
          LIMIT 10`
       ).all()
@@ -115,17 +133,15 @@ router.get('/stats', (req, res) => {
 });
 
 /**
- * Insère ou met à jour les promos en base (UPSERT sur source+url).
- * @param {object[]} items
- * @returns {number} nombre d'insertions
+ * Insère ou met à jour les articles en base (UPSERT sur source+url).
  */
 function savePromos(items) {
   const db   = getDb();
   const stmt = db.prepare(`
     INSERT INTO promos (source, title, price, original_price, discount_percent,
-                        url, image_url, category, scraped_at)
+                        url, image_url, category, item_type, scraped_at)
     VALUES (@source, @title, @price, @original_price, @discount_percent,
-            @url, @image_url, @category, @scraped_at)
+            @url, @image_url, @category, @item_type, @scraped_at)
     ON CONFLICT(source, url) DO UPDATE SET
       title            = excluded.title,
       price            = excluded.price,
@@ -133,15 +149,16 @@ function savePromos(items) {
       discount_percent = excluded.discount_percent,
       image_url        = excluded.image_url,
       category         = excluded.category,
+      item_type        = excluded.item_type,
       scraped_at       = excluded.scraped_at
   `);
 
   let count = 0;
   const insert = db.transaction((rows) => {
     for (const row of rows) {
-      if (!row.url) continue;    // URL obligatoire pour le UNIQUE
+      if (!row.url) continue;
       try {
-        stmt.run(row);
+        stmt.run({ item_type: 'promo', ...row });
         count++;
       } catch (e) {
         logger.warn(`[promos] Erreur insertion "${row.title}" : ${e.message}`);
