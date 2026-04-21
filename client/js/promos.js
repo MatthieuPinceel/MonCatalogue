@@ -104,7 +104,7 @@ document.getElementById('scrapeNowBtn').addEventListener('click', async () => {
   btn.textContent = '⏳ Scraping...';
   try {
     const res = await API.post('/promos/scrape', {});
-    toast(`Scraping terminé : ${res.scraped} articles trouvés, ${res.saved} enregistrés`, 'success');
+    toast(`Scraping : ${res.saved} enregistrés${res.deleted ? `, ${res.deleted} expirés supprimés` : ''}`, 'success');
     resetAndLoad();
   } catch (err) {
     toast(`Erreur : ${err.message}`, 'error');
@@ -121,7 +121,7 @@ document.getElementById('scrapeCatalogBtn').addEventListener('click', async () =
   btn.textContent = '⏳ Scan...';
   try {
     const res = await API.post('/promos/scrape-catalog', {});
-    toast(`Catalogue : ${res.scraped} articles trouvés, ${res.saved} enregistrés`, 'success');
+    toast(`Catalogue : ${res.saved} enregistrés${res.deleted ? `, ${res.deleted} expirés supprimés` : ''}`, 'success');
     resetAndLoad();
   } catch (err) {
     toast(`Erreur : ${err.message}`, 'error');
