@@ -31,12 +31,11 @@ function makeHttp(referer) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-function normalizePrice(str) {
+function normalizePrice(str, maxPrice = 500) {
   if (!str) return null;
   const cleaned = String(str).replace(/\s/g, '').replace(/[^\d,\.]/g, '').replace(',', '.').trim();
   const val = parseFloat(cleaned);
-  // Prix invalide : NaN, négatif, zéro, ou > 500 € (probablement un code/référence)
-  return isNaN(val) || val <= 0 || val > 500 ? null : val;
+  return isNaN(val) || val <= 0 || val > maxPrice ? null : val;
 }
 
 function calcDiscount(original, sale) {
@@ -44,44 +43,22 @@ function calcDiscount(original, sale) {
   return Math.round((1 - sale / original) * 100);
 }
 
-async function scrapeKingJouet() {
-  logger.info(`[Scraper] kingjouet — ignoré (Cloudflare, couvert par Gmail)`);
-  return [];
-}
-
-async function scrapeMicromania() {
-  logger.info(`[Scraper] micromania — ignoré (Cloudflare, couvert par Gmail)`);
-  return [];
-}
-
-async function scrapeFnac() {
-  logger.info(`[Scraper] fnac — ignoré (protection anti-bot, couvert par Gmail)`);
-  return [];
-}
+// ---------------------------------------------------------------
+// Stubs — sites bloqués anti-bot (couverts par Gmail)
+// ---------------------------------------------------------------
+async function scrapeKingJouet()  { logger.info(`[Scraper] kingjouet — ignoré (Cloudflare)`);    return []; }
+async function scrapeMicromania() { logger.info(`[Scraper] micromania — ignoré (Cloudflare)`);   return []; }
+async function scrapeFnac()       { logger.info(`[Scraper] fnac — ignoré (anti-bot)`);            return []; }
+async function scrapeSmyths()     { logger.info(`[Scraper] smyths — ignoré (anti-bot)`);          return []; }
+async function scrapeFuretDuNord(){ logger.info(`[Scraper] furetdunord — ignoré (403)`);          return []; }
 
 // ---------------------------------------------------------------
-// SMYTHS TOYS — bloqué par anti-bot ("Pardon Our Interruption")
+// PHILIBERT — fonction partagée promo + catalogue
 // ---------------------------------------------------------------
-async function scrapeSmyths() {
-  logger.info(`[Scraper] smyths — ignoré (anti-bot, couvert par Gmail)`);
-  return [];
-}
-
-// ---------------------------------------------------------------
-// FURET DU NORD — 403 bloqué
-// ---------------------------------------------------------------
-async function scrapeFuretDuNord() {
-  logger.info(`[Scraper] furetdunord — ignoré (403, couvert par Gmail)`);
-  return [];
-}
-
-// ---------------------------------------------------------------
-// PHILIBERT
-// ---------------------------------------------------------------
-async function scrapePhilibert() {
-  const source = 'philibert';
-  const url    = 'https://www.philibertnet.com/fr/promotions';
-  logger.info(`[Scraper] ${source} — début`);
+async function scrapePhilibertPage(url, defaultCategory, itemType = 'promo') {
+  const source   = 'philibert';
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Scraper] ${source} (${itemType}) — ${url}`);
   try {
     await sleep(DELAY);
     const { data } = await makeHttp('https://www.philibertnet.com/fr/').get(url);
@@ -92,8 +69,8 @@ async function scrapePhilibert() {
       const titleEl = $(el).find('a.product_img_link, .wrapper_product_2 a, h5 a, a[class*="product_name"]').first();
       const title   = titleEl.text().trim() || $(el).find('a[title]').first().attr('title') || '';
       if (!title || title.length < 3) return;
-      const priceOld = normalizePrice($(el).find('.old-price, s, [class*="old"]').first().text());
-      const priceNew = normalizePrice($(el).find('.product-price, .price:not(s):not(.old-price)').first().text());
+      const priceOld = normalizePrice($(el).find('.old-price, s, [class*="old"]').first().text(), maxPrice);
+      const priceNew = normalizePrice($(el).find('.product-price, .price:not(s):not(.old-price)').first().text(), maxPrice);
       const price    = priceNew || priceOld;
       if (!price) return;
       const href = titleEl.attr('href') || $(el).find('a').first().attr('href') || '';
@@ -103,11 +80,12 @@ async function scrapePhilibert() {
         discount_percent: calcDiscount(priceOld, priceNew),
         url:       href.startsWith('http') ? href : `https://www.philibertnet.com${href}`,
         image_url: $(el).find('img').first().attr('src') || null,
-        category:  guessCategoryFromTitle(title) || 'JeuxSociete',
+        category:  guessCategoryFromTitle(title) || defaultCategory || 'JeuxSociete',
+        item_type: itemType,
         scraped_at: new Date().toISOString()
       });
     });
-    logger.info(`[Scraper] ${source} — ${results.length} articles`);
+    logger.info(`[Scraper] ${source} (${itemType}) — ${results.length} articles`);
     return results;
   } catch (err) {
     logger.error(`[Scraper] ${source} erreur : ${err.message}`);
@@ -115,27 +93,30 @@ async function scrapePhilibert() {
   }
 }
 
+async function scrapePhilibert() {
+  return scrapePhilibertPage('https://www.philibertnet.com/fr/promotions', null, 'promo');
+}
+
 // ---------------------------------------------------------------
-// CULTURA
+// CULTURA — fonction partagée promo + catalogue
 // ---------------------------------------------------------------
-async function scrapeCultura() {
-  const source = 'cultura';
-  const url    = 'https://www.cultura.com/les-promotions.html';
-  logger.info(`[Scraper] ${source} — début`);
+async function scrapeCulturaPage(url, defaultCategory, itemType = 'promo') {
+  const source   = 'cultura';
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Scraper] ${source} (${itemType}) — ${url}`);
   try {
     await sleep(DELAY);
     const { data } = await makeHttp('https://www.cultura.com/').get(url);
     const $        = cheerio.load(data);
     const results  = [];
 
-    // Sélecteurs confirmés par diagnostic : one-product, one-product__desc__name
     $('.one-product, .one-card--product').each((i, el) => {
       const title = $(el).find('.one-product__desc__name, [class*="product__desc__name"], [class*="product__name"]').first().text().trim()
                  || $(el).find('a[title]').first().attr('title') || '';
       if (!title || title.length < 3) return;
-      const priceNew = normalizePrice($(el).find('[class*="price--sale"], [class*="price-sale"], [class*="promo"]').first().text());
-      const priceOld = normalizePrice($(el).find('[class*="price--old"], [class*="price-old"], s').first().text());
-      const price    = priceNew || normalizePrice($(el).find('[class*="price"]').first().text());
+      const priceNew = normalizePrice($(el).find('[class*="price--sale"], [class*="price-sale"], [class*="promo"]').first().text(), maxPrice);
+      const priceOld = normalizePrice($(el).find('[class*="price--old"], [class*="price-old"], s').first().text(), maxPrice);
+      const price    = priceNew || normalizePrice($(el).find('[class*="price"]').first().text(), maxPrice);
       if (!price) return;
       const href = $(el).find('a').first().attr('href') || '';
       results.push({
@@ -144,11 +125,12 @@ async function scrapeCultura() {
         discount_percent: calcDiscount(priceOld, price),
         url:       href.startsWith('http') ? href : `https://www.cultura.com${href}`,
         image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
-        category:  guessCategoryFromTitle(title),
+        category:  guessCategoryFromTitle(title) || defaultCategory,
+        item_type: itemType,
         scraped_at: new Date().toISOString()
       });
     });
-    logger.info(`[Scraper] ${source} — ${results.length} articles`);
+    logger.info(`[Scraper] ${source} (${itemType}) — ${results.length} articles`);
     return results;
   } catch (err) {
     logger.error(`[Scraper] ${source} erreur : ${err.message}`);
@@ -156,14 +138,18 @@ async function scrapeCultura() {
   }
 }
 
+async function scrapeCultura() {
+  return scrapeCulturaPage('https://www.cultura.com/les-promotions.html', null, 'promo');
+}
+
 // ---------------------------------------------------------------
 // Utilitaires
 // ---------------------------------------------------------------
 const CATEGORY_PATTERNS = [
-  { pattern: /pokemon|lorcana|magic|yugioh|one piece|tcg|carte/i, category: 'TCG' },
-  { pattern: /lego|technic|duplo/i,                               category: 'Lego' },
-  { pattern: /playstation|xbox|nintendo|switch|ps[45]|jeu.vid/i,  category: 'JeuxVideo' },
-  { pattern: /jeu.de.soci|plateau|extension|deck|figurin/i,       category: 'JeuxSociete' }
+  { pattern: /pokemon|lorcana|magic|yugioh|one piece|tcg|carte.a.collectionner/i, category: 'TCG' },
+  { pattern: /lego|technic|duplo/i,                                               category: 'Lego' },
+  { pattern: /playstation|xbox|nintendo|switch|ps[45]|jeu.vid/i,                  category: 'JeuxVideo' },
+  { pattern: /jeu.de.soci|plateau|extension|deck|figurin/i,                       category: 'JeuxSociete' }
 ];
 
 function guessCategoryFromTitle(title) {
@@ -173,6 +159,9 @@ function guessCategoryFromTitle(title) {
   return null;
 }
 
+// ---------------------------------------------------------------
+// Scrapers de promos
+// ---------------------------------------------------------------
 const SCRAPERS = {
   kingjouet:   scrapeKingJouet,
   micromania:  scrapeMicromania,
@@ -183,6 +172,17 @@ const SCRAPERS = {
   cultura:     scrapeCultura
 };
 
+// ---------------------------------------------------------------
+// Scrapers de catalogue (pages catégories, hors promo)
+// ---------------------------------------------------------------
+const CATALOG_SCRAPERS = {
+  'cultura-tcg':   () => scrapeCulturaPage('https://www.cultura.com/jeux/jeux-de-cartes-et-extension.html',  'TCG',         'catalog'),
+  'cultura-lego':  () => scrapeCulturaPage('https://www.cultura.com/jeux/jeux-de-construction.html',         'Lego',        'catalog'),
+  'cultura-jv':    () => scrapeCulturaPage('https://www.cultura.com/jeux-video.html',                        'JeuxVideo',   'catalog'),
+  'philibert-tcg': () => scrapePhilibertPage('https://www.philibertnet.com/fr/jeux-de-cartes-a-collectionner', 'TCG',       'catalog'),
+  'philibert-js':  () => scrapePhilibertPage('https://www.philibertnet.com/fr/jeux-de-societe',               'JeuxSociete','catalog'),
+};
+
 async function scrapeAll(only) {
   const keys = only && only.length ? only : Object.keys(SCRAPERS);
   const all  = [];
@@ -191,8 +191,20 @@ async function scrapeAll(only) {
     all.push(...await SCRAPERS[key]());
     await sleep(DELAY);
   }
-  logger.info(`[Scraper] Total : ${all.length} articles scrappés`);
+  logger.info(`[Scraper] Total promos : ${all.length} articles`);
   return all;
 }
 
-module.exports = { scrapeAll, SCRAPERS, guessCategoryFromTitle };
+async function scrapeAllCatalog(only) {
+  const keys = only && only.length ? only : Object.keys(CATALOG_SCRAPERS);
+  const all  = [];
+  for (const key of keys) {
+    if (!CATALOG_SCRAPERS[key]) { logger.warn(`[Scraper] Catalogue inconnu : "${key}"`); continue; }
+    all.push(...await CATALOG_SCRAPERS[key]());
+    await sleep(DELAY);
+  }
+  logger.info(`[Scraper] Total catalogue : ${all.length} articles`);
+  return all;
+}
+
+module.exports = { scrapeAll, scrapeAllCatalog, SCRAPERS, CATALOG_SCRAPERS, guessCategoryFromTitle };
