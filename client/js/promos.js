@@ -6,39 +6,37 @@
 let promoPage   = 0;
 const PROMO_LIMIT = 24;
 
-async function loadPromos(reset = true) {
-  if (reset) promoPage = 0;
-  const source     = document.getElementById('promoSourceFilter').value;
-  const category   = document.getElementById('promoCategoryFilter').value;
-  const sort       = document.getElementById('promoSortFilter').value;
-  const promoOnly  = document.getElementById('promoOnlyFilter').checked ? '1' : '';
-  const params     = new URLSearchParams({ limit: PROMO_LIMIT, offset: promoPage * PROMO_LIMIT });
-  if (source)     params.set('source',     source);
-  if (category)   params.set('category',   category);
-  if (sort)       params.set('sort',       sort);
-  if (promoOnly)  params.set('promo_only', promoOnly);
+async function loadPromos() {
+  const source    = document.getElementById('promoSourceFilter').value;
+  const category  = document.getElementById('promoCategoryFilter').value;
+  const sort      = document.getElementById('promoSortFilter').value;
+  const promoOnly = document.getElementById('promoOnlyFilter').checked ? '1' : '';
+  const params    = new URLSearchParams({ limit: PROMO_LIMIT, offset: promoPage * PROMO_LIMIT });
+  if (source)    params.set('source',     source);
+  if (category)  params.set('category',   category);
+  if (sort)      params.set('sort',       sort);
+  if (promoOnly) params.set('promo_only', promoOnly);
 
   try {
     const data = await API.get(`/promos?${params}`);
-    renderPromos(data.data || [], reset);
+    renderPromos(data.data || []);
     renderPagination(data.total, data.offset, data.limit);
   } catch (err) {
     toast(`Erreur promos : ${err.message}`, 'error');
   }
 }
 
-const CAT_LABELS = {
-  TCG:         '🃏 TCG',
-  Lego:        '🧱 Lego',
-  JeuxVideo:   '🎮 Jeux Vidéo',
-  JeuxSociete: '♟️ Jeux de Société',
-};
-const CAT_ORDER = ['TCG', 'Lego', 'JeuxVideo', 'JeuxSociete'];
+function resetAndLoad() { promoPage = 0; loadPromos(); }
+
+const CAT_ICONS = { TCG: '🃏', Lego: '🧱', JeuxVideo: '🎮', JeuxSociete: '♟️' };
 
 function buildPromoCard(item) {
+  const catBadge = item.category
+    ? `<span style="font-size:.75rem;color:var(--text-muted)">${CAT_ICONS[item.category] || '🏷️'} ${item.category}</span>`
+    : '';
   const imgEl = item.image_url
     ? `<img class="promo-img" src="${escHtml(item.image_url)}" alt="" loading="lazy" onerror="this.style.display='none'">`
-    : `<div class="promo-img-placeholder">${categoryIcon(item.category)}</div>`;
+    : `<div class="promo-img-placeholder">${CAT_ICONS[item.category] || '🏷️'}</div>`;
   return `
     <div class="promo-card">
       ${imgEl}
@@ -50,20 +48,17 @@ function buildPromoCard(item) {
           ${item.discount_percent ? `<span class="promo-badge">-${item.discount_percent}%</span>` : ''}
         </div>
         <div class="promo-source">
-          ${escHtml(item.source)} · ${formatDate(item.scraped_at)}
+          ${catBadge} ${escHtml(item.source)} · ${formatDate(item.scraped_at)}
           ${item.url ? `· <a href="${escHtml(item.url)}" target="_blank" rel="noopener">voir</a>` : ''}
         </div>
       </div>
     </div>`;
 }
 
-function renderPromos(items, reset) {
-  const grid       = document.getElementById('promoGrid');
-  const activeFilter = document.getElementById('promoCategoryFilter').value;
-
-  if (reset) grid.innerHTML = '';
-
-  if (!items.length && !grid.children.length) {
+function renderPromos(items) {
+  const grid = document.getElementById('promoGrid');
+  grid.innerHTML = '';
+  if (!items.length) {
     grid.innerHTML = `
       <div class="empty-state" style="grid-column:1/-1">
         <div class="empty-icon">🏷️</div>
@@ -71,51 +66,8 @@ function renderPromos(items, reset) {
       </div>`;
     return;
   }
-
-  // Sans filtre de catégorie → grouper par catégorie avec sections
-  if (!activeFilter) {
-    const groups = {};
-    items.forEach(item => {
-      const cat = item.category || 'Autre';
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(item);
-    });
-    const ordered = [...new Set([...CAT_ORDER, ...Object.keys(groups)])].filter(c => groups[c]);
-
-    ordered.forEach(cat => {
-      const sectionId = `promo-cat-${cat}`;
-      let section = document.getElementById(sectionId);
-      if (!section) {
-        section = document.createElement('div');
-        section.id = sectionId;
-        section.className = 'promo-category-section';
-        section.innerHTML = `
-          <div class="promo-cat-header" onclick="togglePromoCat('${sectionId}')">
-            <span>${CAT_LABELS[cat] || ('🏷️ ' + cat)}</span>
-            <span class="promo-cat-count" id="${sectionId}-count"></span>
-            <span class="promo-cat-toggle" id="${sectionId}-icon">▾</span>
-          </div>
-          <div class="promo-cat-grid" id="${sectionId}-grid"></div>`;
-        grid.appendChild(section);
-      }
-      const catGrid = document.getElementById(`${sectionId}-grid`);
-      groups[cat].forEach(item => { catGrid.insertAdjacentHTML('beforeend', buildPromoCard(item)); });
-      document.getElementById(`${sectionId}-count`).textContent = `(${catGrid.children.length})`;
-    });
-  } else {
-    // Avec filtre → grille plate simple
-    items.forEach(item => { grid.insertAdjacentHTML('beforeend', buildPromoCard(item)); });
-  }
+  grid.innerHTML = items.map(buildPromoCard).join('');
 }
-
-function togglePromoCat(sectionId) {
-  const g    = document.getElementById(`${sectionId}-grid`);
-  const icon = document.getElementById(`${sectionId}-icon`);
-  const open = g.style.display !== 'none';
-  g.style.display    = open ? 'none' : '';
-  icon.style.transform = open ? 'rotate(-90deg)' : '';
-}
-window.togglePromoCat = togglePromoCat;
 
 function renderPagination(total, offset, limit) {
   const container = document.getElementById('promoPagination');
@@ -132,7 +84,7 @@ function renderPagination(total, offset, limit) {
   container.innerHTML = html;
 
   container.querySelectorAll('.page-btn').forEach(btn => {
-    btn.addEventListener('click', () => { promoPage = parseInt(btn.dataset.p, 10); loadPromos(true); });
+    btn.addEventListener('click', () => { promoPage = parseInt(btn.dataset.p, 10); loadPromos(); });
   });
 }
 
@@ -148,7 +100,7 @@ document.getElementById('scrapeNowBtn').addEventListener('click', async () => {
   try {
     const res = await API.post('/promos/scrape', {});
     toast(`Scraping terminé : ${res.scraped} articles trouvés, ${res.saved} enregistrés`, 'success');
-    loadPromos(true);
+    resetAndLoad();
   } catch (err) {
     toast(`Erreur : ${err.message}`, 'error');
   } finally {
@@ -158,10 +110,10 @@ document.getElementById('scrapeNowBtn').addEventListener('click', async () => {
 });
 
 // ── Filtres ───────────────────────────────────────────────────
-document.getElementById('promoSourceFilter').addEventListener('change',  () => loadPromos(true));
-document.getElementById('promoCategoryFilter').addEventListener('change', () => loadPromos(true));
-document.getElementById('promoSortFilter').addEventListener('change',     () => loadPromos(true));
-document.getElementById('promoOnlyFilter').addEventListener('change',     () => loadPromos(true));
+document.getElementById('promoSourceFilter').addEventListener('change',  resetAndLoad);
+document.getElementById('promoCategoryFilter').addEventListener('change', resetAndLoad);
+document.getElementById('promoSortFilter').addEventListener('change',     resetAndLoad);
+document.getElementById('promoOnlyFilter').addEventListener('change',     resetAndLoad);
 
 // Charger les sources disponibles dans le filtre
 async function loadPromoSources() {
@@ -294,6 +246,6 @@ document.getElementById('gmailReloadBtn').addEventListener('click', loadGmailPro
 window.addEventListener('pagechange', (e) => {
   if (e.detail === 'promos') {
     loadPromoSources();
-    loadPromos(true);
+    resetAndLoad();
   }
 });
