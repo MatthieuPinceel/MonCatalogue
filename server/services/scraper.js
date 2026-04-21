@@ -386,6 +386,106 @@ async function scrapeKingJouetPage(url, category, itemType = 'promo') {
   }
 }
 
+// ---------------------------------------------------------------
+// BCD JEUX — Chromium (WAF bloque les requêtes statiques)
+// Site PrestaShop spécialisé TCG / jeux de société
+// ---------------------------------------------------------------
+async function scrapeBcdJeuxPage(url, category, itemType = 'catalog') {
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/BcdJeux] (${itemType}) — ${url}`);
+  try {
+    return await withChromiumPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector(
+        'article.product-miniature, .product-miniature, .js-product-miniature, .product_miniature',
+        { timeout: 15000 }
+      ).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        const cards = document.querySelectorAll(
+          'article.product-miniature, .product-miniature, .js-product-miniature'
+        );
+        cards.forEach(el => {
+          const titleEl = el.querySelector('.product-title a, .product-name a, h2 a, h3 a, a[class*="product"]');
+          const title   = titleEl?.textContent?.trim() || el.querySelector('a[title]')?.title || '';
+          if (!title || title.length < 3) return;
+
+          const priceNew = (
+            el.querySelector('.price, .product-price, [itemprop="price"]')?.textContent?.trim() ||
+            el.querySelector('[class*="price"]')?.textContent?.trim() || ''
+          );
+          const priceOld = (
+            el.querySelector('.regular-price, .product-regular-price, s, del, [class*="old-price"], [class*="regular"]')?.textContent?.trim() || ''
+          );
+          const discount = el.querySelector('.discount-percentage, [class*="discount"]')?.textContent?.trim() || '';
+          const imgEl    = el.querySelector('img');
+          const linkEl   = titleEl || el.querySelector('a');
+
+          results.push({
+            title,
+            priceNew,
+            priceOld,
+            discount,
+            img:  imgEl?.src || imgEl?.dataset?.src || imgEl?.dataset?.lazy || '',
+            href: linkEl?.href || '',
+          });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const priceNew = normalizePrice(item.priceNew, maxPrice);
+        const priceOld = normalizePrice(item.priceOld, maxPrice);
+        const price    = priceNew || priceOld;
+        if (!price) return null;
+
+        // Si le site fournit le % de remise directement, l'extraire
+        let discountPct = calcDiscount(priceOld, priceNew);
+        if (!discountPct && item.discount) {
+          const m = item.discount.match(/(\d+)\s*%/);
+          if (m) discountPct = parseInt(m[1], 10);
+        }
+
+        return {
+          source:           'bcd-jeux',
+          title:            item.title,
+          price,
+          original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
+          discount_percent: discountPct,
+          url:              item.href || url,
+          image_url:        item.img || null,
+          category:         guessCategoryFromTitle(item.title) || category,
+          item_type:        itemType,
+          scraped_at:       now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/BcdJeux] erreur sur ${url} : ${err.message}`);
+    return [];
+  }
+}
+
+async function scrapeBcdJeuxPaginated(baseUrl, category, itemType = 'catalog', maxPages = 3) {
+  const all = [];
+  for (let p = 1; p <= maxPages; p++) {
+    const url   = p === 1 ? baseUrl : `${baseUrl}?p=${p}`;
+    const items = await scrapeBcdJeuxPage(url, category, itemType);
+    all.push(...items);
+    if (items.length < 5) break;
+    await new Promise(r => setTimeout(r, DELAY));
+  }
+  logger.info(`[Chromium/BcdJeux] (${itemType}) — ${all.length} articles (${maxPages} pages max)`);
+  return all;
+}
+
+async function scrapeBcdJeux() {
+  return scrapeBcdJeuxPage('https://www.bcd-jeux.fr/fr/promotions', null, 'promo');
+}
+
 async function scrapeKingJouetPaginated(baseUrl, category, itemType = 'promo', maxPages = 3) {
   const all = [];
   for (let page = 1; page <= maxPages; page++) {
@@ -616,6 +716,8 @@ const SCRAPERS = {
   'dealabs-lego':         () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/lego',        'Lego'),
   'dealabs-jv':           () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/jeux-video',  'JeuxVideo'),
   'dealabs-jouets':       () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/jeux-jouets', null),
+  // BCD Jeux — Chromium (WAF)
+  'bcd-jeux':             scrapeBcdJeux,
   // Chromium — sites anti-bot
   fnac:                   scrapeFnac,
   'fnac-pokemon':         () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4',  'TCG',  'promo'),
@@ -666,6 +768,11 @@ const CATALOG_SCRAPERS = {
   // Idealo — comparateur de prix français, Chromium
   'idealo-pokemon':    () => scrapeIdealoPage('https://www.idealo.fr/cat/20338/cartes-pokemon.html',        'TCG',  'catalog'),
   'idealo-lego':       () => scrapeIdealoPage('https://www.idealo.fr/cat/1484/lego.html',                   'Lego', 'catalog'),
+  // BCD Jeux — TCG & Jeux société, Chromium
+  'bcd-pokemon':       () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/pokemon', 'TCG', 'catalog'),
+  'bcd-lorcana':       () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/lorcana', 'TCG', 'catalog'),
+  'bcd-magic':         () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/magic-the-gathering', 'TCG', 'catalog'),
+  'bcd-jeux-societe':  () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/jeux-de-societe', 'JeuxSociete', 'catalog'),
 };
 
 async function scrapeAll(only) {

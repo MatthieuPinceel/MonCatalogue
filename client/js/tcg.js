@@ -3,6 +3,32 @@
    tcg.js — Page TCG (Pokémon + Lorcana)
    ============================================================ */
 
+const CONDITION_FR = {
+  NM: 'Comme neuf (NM)',
+  LP: 'Légèrement jouée (LP)',
+  MP: 'Moyennement jouée (MP)',
+  HP: 'Très jouée (HP)',
+  D:  'Endommagée (D)',
+};
+
+const RARITY_FR = {
+  Common:                      'Commune',
+  Uncommon:                    'Peu commune',
+  Rare:                        'Rare',
+  'Rare Holo':                 'Rare Holo',
+  'Rare Ultra':                'Ultra Rare',
+  'Rare Secret':               'Secret Rare',
+  'Rare Rainbow':              'Rainbow Rare',
+  'Amazing Rare':              'Rare Extraordinaire',
+  'Hyper Rare':                'Hyper Rare',
+  'Double Rare':               'Double Rare',
+  'Illustration Rare':         'Rare Illustrée',
+  'Special Illustration Rare': 'Rare Ill. Spéciale',
+  'Ultra Rare':                'Ultra Rare',
+  'Secret Rare':               'Secret Rare',
+  Promo:                       'Promo',
+};
+
 async function loadTCGCollection() {
   const game = document.getElementById('tcgGameFilter').value;
   const params = game ? `?game=${game}` : '';
@@ -26,11 +52,11 @@ function renderCollection(cards) {
   }
   tbody.innerHTML = cards.map(c => `
     <tr>
-      <td><span class="badge badge-muted">${escHtml(c.game)}</span></td>
+      <td><span class="badge badge-muted">${escHtml(GAME_LABELS[c.game] || c.game)}</span></td>
       <td>${escHtml(c.set_name || '—')}</td>
       <td>${escHtml(c.card_name)}</td>
-      <td>${escHtml(c.rarity || '—')}</td>
-      <td>${escHtml(c.condition)}</td>
+      <td>${escHtml(RARITY_FR[c.rarity] || c.rarity || '—')}</td>
+      <td title="${escHtml(CONDITION_FR[c.condition] || c.condition)}">${escHtml(c.condition)}</td>
       <td>${c.quantity}</td>
       <td>${c.market_price ? formatPrice(c.market_price) : '—'}</td>
       <td>
@@ -90,10 +116,11 @@ document.getElementById('addCardBtn').addEventListener('click', () => {
         <div class="form-group">
           <label class="form-label">État</label>
           <select name="condition" class="select">
-            <option value="NM">NM (Near Mint)</option>
-            <option value="LP">LP (Light Played)</option>
-            <option value="MP">MP (Moderately Played)</option>
-            <option value="HP">HP (Heavily Played)</option>
+            <option value="NM">NM — Comme neuf</option>
+            <option value="LP">LP — Légèrement jouée</option>
+            <option value="MP">MP — Moyennement jouée</option>
+            <option value="HP">HP — Très jouée</option>
+            <option value="D">D — Endommagée</option>
           </select>
         </div>
       </div>

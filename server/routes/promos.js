@@ -4,6 +4,7 @@ const express  = require('express');
 const router   = express.Router();
 const { getDb } = require('../db/init');
 const { scrapeAll, scrapeAllCatalog } = require('../services/scraper');
+const { classifyItems }               = require('../services/ai-classifier');
 const logger   = require('../services/logger');
 
 /**
@@ -159,6 +160,57 @@ router.get('/stats', (req, res) => {
     };
     res.json(stats);
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/promos/classify
+ * Utilise Claude pour classifier les articles sans discount_percent comme "promo" ou "catalog".
+ * Traite par lots de 20 pour limiter les coûts.
+ */
+router.post('/classify', async (req, res) => {
+  try {
+    const db = getDb();
+    const rows = db.prepare(
+      `SELECT id, title, price, original_price, source
+       FROM promos
+       WHERE discount_percent IS NULL AND item_type != 'catalog'
+       ORDER BY scraped_at DESC
+       LIMIT 100`
+    ).all();
+
+    if (!rows.length) {
+      return res.json({ classified: 0, promoted: 0, message: 'Aucun article à classifier.' });
+    }
+
+    const BATCH = 20;
+    const updateStmt = db.prepare(
+      `UPDATE promos SET item_type = ?, discount_percent = NULL WHERE id = ?`
+    );
+
+    let classifiedCount = 0;
+    let promotedCount   = 0;
+
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const batch   = rows.slice(i, i + BATCH);
+      const results = await classifyItems(batch);
+
+      const applyBatch = db.transaction(() => {
+        for (const r of results) {
+          const newType = r.is_promo ? 'promo' : 'catalog';
+          updateStmt.run(newType, r.id);
+          classifiedCount++;
+          if (r.is_promo) promotedCount++;
+          logger.info(`[classify] ID ${r.id} → ${newType} (${r.confidence}) : ${r.reason}`);
+        }
+      });
+      applyBatch();
+    }
+
+    res.json({ classified: classifiedCount, promoted: promotedCount });
+  } catch (err) {
+    logger.error(`[/api/promos/classify] ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });
