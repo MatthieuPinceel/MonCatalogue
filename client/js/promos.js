@@ -149,6 +149,28 @@ document.getElementById('clearAllPromosBtn').addEventListener('click', async () 
   }
 });
 
+// ── Classifier avec IA ───────────────────────────────────────
+document.getElementById('classifyPromosBtn').addEventListener('click', async () => {
+  if (!confirm('Lancer la classification IA des articles sans remise visible ?\nChaque appel utilise des crédits Anthropic (Haiku, ~0.01$ / 100 articles).')) return;
+  const btn = document.getElementById('classifyPromosBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Classification...';
+  try {
+    const res = await API.post('/promos/classify', {});
+    if (res.message) {
+      toast(res.message, 'info');
+    } else {
+      toast(`IA : ${res.classified} articles classifiés, dont ${res.promoted} promotions détectées`, 'success');
+      resetAndLoad();
+    }
+  } catch (err) {
+    toast(`Erreur IA : ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🤖 Classifier (IA)';
+  }
+});
+
 // ── Filtres ───────────────────────────────────────────────────
 document.getElementById('promoTypeFilter').addEventListener('change',    resetAndLoad);
 document.getElementById('promoSourceFilter').addEventListener('change',  resetAndLoad);
