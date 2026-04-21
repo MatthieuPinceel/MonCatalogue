@@ -44,13 +44,415 @@ function calcDiscount(original, sale) {
 }
 
 // ---------------------------------------------------------------
-// Stubs — sites bloqués anti-bot (couverts par Gmail)
+// Stubs
 // ---------------------------------------------------------------
-async function scrapeKingJouet()  { logger.info(`[Scraper] kingjouet — ignoré (Cloudflare)`);    return []; }
-async function scrapeMicromania() { logger.info(`[Scraper] micromania — ignoré (Cloudflare)`);   return []; }
-async function scrapeFnac()       { logger.info(`[Scraper] fnac — ignoré (anti-bot)`);            return []; }
-async function scrapeSmyths()     { logger.info(`[Scraper] smyths — ignoré (anti-bot)`);          return []; }
-async function scrapeFuretDuNord(){ logger.info(`[Scraper] furetdunord — ignoré (403)`);          return []; }
+async function scrapeFuretDuNord() { logger.info(`[Scraper] furetdunord — ignoré (403)`); return []; }
+
+// ---------------------------------------------------------------
+// FNAC — Chromium (anti-bot contourné)
+// ---------------------------------------------------------------
+async function scrapeFnacPage(url, category, itemType = 'promo') {
+  const { withPage } = require('./chromium');
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/Fnac] (${itemType}) — ${url}`);
+  try {
+    return await withPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector('.Article-article, [class*="Article-item"]', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        document.querySelectorAll('.Article-article').forEach(el => {
+          const title = (
+            el.querySelector('.Article-nameContainer, [class*="Article-desc"], h3')?.textContent?.trim() ||
+            el.querySelector('a[title]')?.title || ''
+          );
+          if (!title || title.length < 3) return;
+          results.push({
+            title,
+            price:    el.querySelector('.f-priceBox-price .userPrice, [class*="userPrice"], .f-priceBox-price')?.textContent?.trim() || '',
+            oldPrice: el.querySelector('.f-priceBox-oldPrice, [class*="oldPrice"]')?.textContent?.trim() || '',
+            img:      el.querySelector('img')?.src || el.querySelector('img')?.dataset?.src || '',
+            href:     el.querySelector('a')?.href || '',
+          });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const price    = normalizePrice(item.price, maxPrice);
+        if (!price) return null;
+        const original = normalizePrice(item.oldPrice, maxPrice);
+        return {
+          source: 'fnac', title: item.title, price, original_price: original,
+          discount_percent: calcDiscount(original, price),
+          url: item.href || url, image_url: item.img || null,
+          category: guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/Fnac] erreur : ${err.message}`);
+    return [];
+  }
+}
+
+async function scrapeFnac() {
+  return scrapeFnacPage('https://www.fnac.com/Ventes-flash-et-promotions/n-1940003/w-4', null, 'promo');
+}
+
+// ---------------------------------------------------------------
+// AMAZON — Chromium (anti-bot contourné, résultats variables)
+// ---------------------------------------------------------------
+async function scrapeAmazonPage(url, category, itemType = 'catalog') {
+  const { withPage } = require('./chromium');
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/Amazon] (${itemType}) — ${url}`);
+  try {
+    return await withPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        document.querySelectorAll('[data-component-type="s-search-result"]').forEach(el => {
+          const title = el.querySelector('h2 span')?.textContent?.trim() || '';
+          if (!title || title.length < 3) return;
+          const priceWhole = el.querySelector('.a-price[data-a-color="base"] .a-price-whole')?.textContent?.trim() || '';
+          const priceFrac  = el.querySelector('.a-price[data-a-color="base"] .a-price-fraction')?.textContent?.trim() || '';
+          const oldPriceEl = el.querySelector('.a-price[data-a-color="secondary"] .a-offscreen');
+          const price      = priceWhole ? `${priceWhole}.${priceFrac || '00'}` : '';
+          results.push({
+            title,
+            price,
+            oldPrice: oldPriceEl?.textContent?.trim() || '',
+            img:      el.querySelector('.s-image')?.src || '',
+            href:     el.querySelector('h2 a')?.href || '',
+          });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const price    = normalizePrice(item.price, maxPrice);
+        if (!price) return null;
+        const original = normalizePrice(item.oldPrice, maxPrice);
+        return {
+          source: 'amazon', title: item.title, price, original_price: original,
+          discount_percent: calcDiscount(original, price),
+          url: item.href || url, image_url: item.img || null,
+          category: guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/Amazon] erreur : ${err.message}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------
+// GOOGLE SHOPPING — Chromium (résultats comparateur de prix)
+// ---------------------------------------------------------------
+async function scrapeGoogleShoppingPage(query, category, itemType = 'catalog') {
+  const { withPage } = require('./chromium');
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=shop&hl=fr&gl=fr`;
+  logger.info(`[Chromium/GoogleShopping] "${query}"`);
+  try {
+    return await withPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      // Attendre les résultats shopping ou détecter un CAPTCHA
+      await page.waitForSelector('.sh-dgr__content, .sh-pr__product-results-grid, [data-docid]', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+
+      const isCaptcha = await page.evaluate(() =>
+        document.title.includes('unusual traffic') || !!document.querySelector('#captcha-form, #recaptcha')
+      );
+      if (isCaptcha) { logger.warn('[Chromium/GoogleShopping] CAPTCHA détecté, skip'); return []; }
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        // Sélecteurs Google Shopping (peuvent changer)
+        const cards = document.querySelectorAll('.sh-dgr__content, .VZTCjd, .sh-dlr__list-result');
+        cards.forEach(el => {
+          const title    = el.querySelector('h3, [class*="title"]')?.textContent?.trim() || '';
+          if (!title || title.length < 3) return;
+          const priceEl  = el.querySelector('[class*="price"], .a8Pemb, .HRLxBb, [aria-label*="€"]');
+          const price    = priceEl?.textContent?.trim() || priceEl?.getAttribute('aria-label') || '';
+          const merchant = el.querySelector('[class*="merchant"], .aULzUe, .E5ocAb')?.textContent?.trim() || '';
+          const imgEl    = el.querySelector('img');
+          const linkEl   = el.querySelector('a');
+          if (!price) return;
+          results.push({ title, price, merchant, img: imgEl?.src || '', href: linkEl?.href || '' });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const price = normalizePrice(item.price, maxPrice);
+        if (!price) return null;
+        const source = item.merchant ? `google/${item.merchant}` : 'google';
+        return {
+          source, title: item.title, price, original_price: null, discount_percent: null,
+          url: item.href || url, image_url: item.img || null,
+          category: guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/GoogleShopping] erreur : ${err.message}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------
+// IDEALO — comparateur de prix FR, Chromium
+// ---------------------------------------------------------------
+async function scrapeIdealoPage(url, category, itemType = 'catalog') {
+  const { withPage } = require('./chromium');
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/Idealo] (${itemType}) — ${url}`);
+  try {
+    return await withPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector('[class*="product"], .sr-resultList', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        document.querySelectorAll('[class*="productOffers-module__product"], .sr-resultList__item, [data-testid*="product"]').forEach(el => {
+          const title   = el.querySelector('[class*="title"], h3, h2, [itemprop="name"]')?.textContent?.trim() || '';
+          if (!title || title.length < 3) return;
+          const priceEl = el.querySelector('[class*="price"], [itemprop="price"], [class*="Price"]');
+          const price   = priceEl?.textContent?.trim() || priceEl?.getAttribute('content') || '';
+          const imgEl   = el.querySelector('img');
+          const linkEl  = el.querySelector('a');
+          if (!price) return;
+          results.push({ title, price, img: imgEl?.src || '', href: linkEl?.href || '' });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const price = normalizePrice(item.price, maxPrice);
+        if (!price) return null;
+        return {
+          source: 'idealo', title: item.title, price, original_price: null, discount_percent: null,
+          url: item.href || url, image_url: item.img || null,
+          category: guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/Idealo] erreur : ${err.message}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------
+// DEALABS — flux RSS (pas de scraping, XML public)
+// ---------------------------------------------------------------
+function extractPricesFromText(text) {
+  const matches = [...text.matchAll(/(\d+[,\.]\d{1,2})\s*€/g)]
+    .map(m => parseFloat(m[1].replace(',', '.')))
+    .filter(v => v > 0 && v < 1500);
+  if (!matches.length) return { price: null, original_price: null };
+  if (matches.length === 1) return { price: matches[0], original_price: null };
+  return { price: Math.min(...matches), original_price: Math.max(...matches) };
+}
+
+async function scrapeDealabsRSS(feedUrl, category) {
+  logger.info(`[Scraper] dealabs RSS — ${feedUrl}`);
+  try {
+    await sleep(DELAY);
+    const { data } = await makeHttp('https://www.dealabs.com/').get(feedUrl);
+    const $       = cheerio.load(data, { xmlMode: true });
+    const results = [];
+    const now     = new Date().toISOString();
+
+    $('item').each((i, el) => {
+      const title   = $(el).find('title').text().trim();
+      const url     = $(el).find('link').text().trim() || $(el).find('guid').text().trim();
+      const pubDate = $(el).find('pubDate').text().trim();
+      if (!title || !url) return;
+
+      const { price, original_price } = extractPricesFromText(title);
+      if (!price) return;
+
+      results.push({
+        source:           'dealabs',
+        title,
+        price,
+        original_price,
+        discount_percent: calcDiscount(original_price, price),
+        url,
+        image_url:        null,
+        category,
+        item_type:        'promo',
+        scraped_at:       pubDate ? new Date(pubDate).toISOString() : now
+      });
+    });
+
+    logger.info(`[Scraper] dealabs (${category}) — ${results.length} deals`);
+    return results;
+  } catch (err) {
+    logger.error(`[Scraper] dealabs erreur : ${err.message}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------
+// KING JOUET — HTML serveur, Cheerio OK, pagination /pageN.htm
+// ---------------------------------------------------------------
+async function scrapeKingJouetPage(url, category, itemType = 'promo') {
+  try {
+    await sleep(DELAY);
+    const { data } = await makeHttp('https://www.king-jouet.com/').get(url);
+    const $        = cheerio.load(data);
+    const results  = [];
+    const maxPrice = itemType === 'catalog' ? 1500 : 500;
+
+    // Sélecteurs King Jouet (PrestaShop-like)
+    $('article.product-miniature, .produit-vignette, [class*="product-item"]').each((i, el) => {
+      const title = $(el).find('[class*="product-title"], [class*="produit-lib"], h2, h3').first().text().trim()
+                 || $(el).find('a[title]').first().attr('title') || '';
+      if (!title || title.length < 3) return;
+      const priceOld = normalizePrice($(el).find('[class*="regular-price"], [class*="old-price"], s, del').first().text(), maxPrice);
+      const priceNew = normalizePrice($(el).find('[class*="price-sale"], [class*="product-price"], .price').first().text(), maxPrice);
+      const price    = priceNew || priceOld;
+      if (!price) return;
+      const href = $(el).find('a').first().attr('href') || '';
+      results.push({
+        source: 'kingjouet', title, price,
+        original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
+        discount_percent: calcDiscount(priceOld, priceNew),
+        url:       href.startsWith('http') ? href : `https://www.king-jouet.com${href}`,
+        image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
+        category:  guessCategoryFromTitle(title) || category,
+        item_type: itemType,
+        scraped_at: new Date().toISOString()
+      });
+    });
+    return results;
+  } catch (err) {
+    logger.error(`[Scraper] kingjouet erreur sur ${url} : ${err.message}`);
+    return [];
+  }
+}
+
+async function scrapeKingJouetPaginated(baseUrl, category, itemType = 'promo', maxPages = 3) {
+  const all = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const url   = baseUrl.replace('page1.htm', `page${page}.htm`);
+    const items = await scrapeKingJouetPage(url, category, itemType);
+    all.push(...items);
+    if (items.length < 5) break; // Dernière page probablement
+    await sleep(DELAY);
+  }
+  logger.info(`[Scraper] kingjouet (${itemType}) — ${all.length} articles (${maxPages} pages max)`);
+  return all;
+}
+
+async function scrapeKingJouet() {
+  return scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/promotions/page1.htm', null, 'promo');
+}
+
+// ---------------------------------------------------------------
+// MICROMANIA — HTML serveur bien structuré
+// ---------------------------------------------------------------
+async function scrapeMicromaniaPage(url, category, itemType = 'promo') {
+  try {
+    await sleep(DELAY);
+    const { data } = await makeHttp('https://www.micromania.fr/').get(url);
+    const $        = cheerio.load(data);
+    const results  = [];
+    const maxPrice = itemType === 'catalog' ? 1500 : 500;
+
+    $('[class*="product-item"], [class*="product-tile"], article[class*="product"]').each((i, el) => {
+      const title = $(el).find('[class*="product-name"], [class*="product-title"], h2, h3').first().text().trim()
+                 || $(el).find('a[title]').first().attr('title') || '';
+      if (!title || title.length < 3) return;
+      const priceOld = normalizePrice($(el).find('[class*="old-price"], [class*="price-old"], s, del').first().text(), maxPrice);
+      const priceNew = normalizePrice($(el).find('[class*="price-sale"], [class*="special-price"], [class*="price-final"]').first().text()
+                    || $(el).find('[class*="price"]').first().text(), maxPrice);
+      const price    = priceNew || priceOld;
+      if (!price) return;
+      const href = $(el).find('a').first().attr('href') || '';
+      results.push({
+        source: 'micromania', title, price,
+        original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
+        discount_percent: calcDiscount(priceOld, priceNew),
+        url:       href.startsWith('http') ? href : `https://www.micromania.fr${href}`,
+        image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
+        category:  guessCategoryFromTitle(title) || category,
+        item_type: itemType,
+        scraped_at: new Date().toISOString()
+      });
+    });
+    return results;
+  } catch (err) {
+    logger.error(`[Scraper] micromania erreur sur ${url} : ${err.message}`);
+    return [];
+  }
+}
+
+async function scrapeMicromania() {
+  const results = await scrapeMicromaniaPage('https://www.micromania.fr/promotions', null, 'promo');
+  logger.info(`[Scraper] micromania — ${results.length} articles`);
+  return results;
+}
+
+// ---------------------------------------------------------------
+// SMYTHS — HTML serveur propre
+// ---------------------------------------------------------------
+async function scrapeSmythsPage(url, category, itemType = 'promo') {
+  try {
+    await sleep(DELAY);
+    const { data } = await makeHttp('https://www.smythstoys.com/fr/').get(url);
+    const $        = cheerio.load(data);
+    const results  = [];
+    const maxPrice = itemType === 'catalog' ? 1500 : 500;
+
+    $('[class*="product-item"], [class*="productItem"], [class*="product-tile"]').each((i, el) => {
+      const title = $(el).find('[class*="product-name"], [class*="productName"], h2, h3').first().text().trim()
+                 || $(el).find('a[title]').first().attr('title') || '';
+      if (!title || title.length < 3) return;
+      const priceOld = normalizePrice($(el).find('[class*="was-price"], [class*="old-price"], s').first().text(), maxPrice);
+      const priceNew = normalizePrice($(el).find('[class*="now-price"], [class*="sale-price"], [class*="current-price"]').first().text()
+                    || $(el).find('[class*="price"]').first().text(), maxPrice);
+      const price    = priceNew || priceOld;
+      if (!price) return;
+      const href = $(el).find('a').first().attr('href') || '';
+      results.push({
+        source: 'smyths', title, price,
+        original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
+        discount_percent: calcDiscount(priceOld, priceNew),
+        url:       href.startsWith('http') ? href : `https://www.smythstoys.com${href}`,
+        image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-lazy') || null,
+        category:  guessCategoryFromTitle(title) || category,
+        item_type: itemType,
+        scraped_at: new Date().toISOString()
+      });
+    });
+    return results;
+  } catch (err) {
+    logger.error(`[Scraper] smyths erreur sur ${url} : ${err.message}`);
+    return [];
+  }
+}
+
+async function scrapeSmyths() { return []; } // Pas de page promo dédiée confirmée
 
 // ---------------------------------------------------------------
 // PHILIBERT — fonction partagée promo + catalogue
@@ -163,24 +565,72 @@ function guessCategoryFromTitle(title) {
 // Scrapers de promos
 // ---------------------------------------------------------------
 const SCRAPERS = {
-  kingjouet:   scrapeKingJouet,
-  micromania:  scrapeMicromania,
-  fnac:        scrapeFnac,
-  smyths:      scrapeSmyths,
-  furetdunord: scrapeFuretDuNord,
-  philibert:   scrapePhilibert,
-  cultura:     scrapeCultura
+  // Sites axios — pages promos dédiées
+  kingjouet:              scrapeKingJouet,
+  'kingjouet-promo-lego': () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/promotions/marque-lego/page1.htm', 'Lego', 'promo'),
+  'kingjouet-promo-js':   () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/jeux-de-societe-promotion/page1.htm', 'JeuxSociete', 'promo'),
+  micromania:             scrapeMicromania,
+  smyths:                 scrapeSmyths,
+  furetdunord:            scrapeFuretDuNord,
+  philibert:              scrapePhilibert,
+  'philibert-occasions':  () => scrapePhilibertPage('https://www.philibertnet.com/fr/214-occasions', null, 'promo'),
+  cultura:                scrapeCultura,
+  'cultura-promo-jv':     () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/promotions-jeux-video.html', 'JeuxVideo', 'promo'),
+  // Dealabs RSS — XML public, fiable
+  'dealabs-pokemon':      () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/pokemon',     'TCG'),
+  'dealabs-lego':         () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/lego',        'Lego'),
+  'dealabs-jv':           () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/jeux-video',  'JeuxVideo'),
+  'dealabs-jouets':       () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/jeux-jouets', null),
+  // Chromium — sites anti-bot
+  fnac:                   scrapeFnac,
+  'fnac-pokemon':         () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4',  'TCG',  'promo'),
+  'fnac-lorcana':         () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4',  'TCG',  'promo'),
 };
 
 // ---------------------------------------------------------------
 // Scrapers de catalogue (pages catégories, hors promo)
 // ---------------------------------------------------------------
+// URLs vérifiées manuellement — à mettre à jour si une page disparaît
 const CATALOG_SCRAPERS = {
-  'cultura-tcg':   () => scrapeCulturaPage('https://www.cultura.com/jeux/jeux-de-cartes-et-extension.html',  'TCG',         'catalog'),
-  'cultura-lego':  () => scrapeCulturaPage('https://www.cultura.com/jeux/jeux-de-construction.html',         'Lego',        'catalog'),
-  'cultura-jv':    () => scrapeCulturaPage('https://www.cultura.com/jeux-video.html',                        'JeuxVideo',   'catalog'),
-  'philibert-tcg': () => scrapePhilibertPage('https://www.philibertnet.com/fr/jeux-de-cartes-a-collectionner', 'TCG',       'catalog'),
-  'philibert-js':  () => scrapePhilibertPage('https://www.philibertnet.com/fr/jeux-de-societe',               'JeuxSociete','catalog'),
+  // Cultura — TCG
+  'cultura-pokemon': () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-pokemon.html', 'TCG',  'catalog'),
+  'cultura-lorcana': () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-lorcana.html', 'TCG',  'catalog'),
+  'cultura-magic':   () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-magic.html',   'TCG',  'catalog'),
+  // Cultura — Lego & JV
+  'cultura-lego':    () => scrapeCulturaPage('https://www.cultura.com/univers-enfant/jeux-jouets/jeux-de-construction/lego/tous-les-produits-lego.html', 'Lego', 'catalog'),
+  'cultura-jv':      () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles.html', 'JeuxVideo', 'catalog'),
+  // Philibert — TCG
+  'philibert-pokemon': () => scrapePhilibertPage('https://www.philibertnet.com/fr/212-pokemon',        'TCG',        'catalog'),
+  'philibert-lorcana': () => scrapePhilibertPage('https://www.philibertnet.com/fr/15880-lorcana',      'TCG',        'catalog'),
+  'philibert-tcg':     () => scrapePhilibertPage('https://www.philibertnet.com/fr/119-jeux-de-cartes', 'TCG',        'catalog'),
+  'philibert-js':      () => scrapePhilibertPage('https://www.philibertnet.com/fr/50-jeux-de-societe', 'JeuxSociete','catalog'),
+  // King Jouet — catalogue
+  'kingjouet-pokemon': () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/Pokemon/page1.htm',                                                  'TCG',  'catalog'),
+  'kingjouet-tcg':     () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/jeux-societes/cartes-a-collectionner/page1.htm',                     'TCG',  'catalog'),
+  'kingjouet-lego':    () => scrapeKingJouetPage('https://www.king-jouet.com/pages/lego_univers/lego.htm', 'Lego', 'catalog'),
+  // Micromania — catalogue TCG
+  'micromania-pokemon': () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes?marque=pokemon',  'TCG', 'catalog'),
+  'micromania-lorcana': () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes?marque=lorcana',  'TCG', 'catalog'),
+  // Smyths — catalogue TCG
+  'smyths-tcg':        () => scrapeSmythsPage('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/cartes-a-collectionner/c/SM13010611', 'TCG', 'catalog'),
+  'smyths-pokemon':    () => scrapeSmythsPage('https://www.smythstoys.com/fr/fr-fr/marques/pokemon/c/SM130208', 'TCG', 'catalog'),
+  'smyths-lorcana':    () => scrapeSmythsPage('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/cartes-a-collectionner/cartes-lorcana/c/SM1301061105', 'TCG', 'catalog'),
+  // Fnac — catalogue Chromium
+  'fnac-pokemon-cat':  () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4',  'TCG', 'catalog'),
+  'fnac-lorcana-cat':  () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4',  'TCG', 'catalog'),
+  'fnac-lego-cat':     () => scrapeFnacPage('https://www.fnac.com/Lego/n-2218/w-4',              'Lego','catalog'),
+  // Amazon — catalogue Chromium
+  'amazon-pokemon':    () => scrapeAmazonPage('https://www.amazon.fr/s?k=cartes+pokemon&rh=n%3A322085011', 'TCG',  'catalog'),
+  'amazon-lorcana':    () => scrapeAmazonPage('https://www.amazon.fr/s?k=cartes+lorcana',                  'TCG',  'catalog'),
+  'amazon-lego':       () => scrapeAmazonPage('https://www.amazon.fr/s?k=lego&rh=n%3A322083011',           'Lego', 'catalog'),
+  // Google Shopping — comparateur Chromium
+  'google-pokemon':    () => scrapeGoogleShoppingPage('cartes pokemon booster',    'TCG',        'catalog'),
+  'google-lorcana':    () => scrapeGoogleShoppingPage('cartes lorcana booster',    'TCG',        'catalog'),
+  'google-lego':       () => scrapeGoogleShoppingPage('lego pokemon sets',         'Lego',       'catalog'),
+  'google-jv':         () => scrapeGoogleShoppingPage('jeux video promotions ps5', 'JeuxVideo',  'catalog'),
+  // Idealo — comparateur de prix français, Chromium
+  'idealo-pokemon':    () => scrapeIdealoPage('https://www.idealo.fr/cat/20338/cartes-pokemon.html',        'TCG',  'catalog'),
+  'idealo-lego':       () => scrapeIdealoPage('https://www.idealo.fr/cat/1484/lego.html',                   'Lego', 'catalog'),
 };
 
 async function scrapeAll(only) {
