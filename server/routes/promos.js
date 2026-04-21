@@ -80,9 +80,10 @@ router.post('/scrape', async (req, res) => {
   const { sources } = req.body || {};
   logger.info(`[/api/promos/scrape] Scraping promos — sources : ${sources ? sources.join(',') : 'toutes'}`);
   try {
-    const items = await scrapeAll(sources);
-    const saved = savePromos(items);
-    res.json({ scraped: items.length, saved, sources: sources || 'all' });
+    const items  = await scrapeAll(sources);
+    const saved  = savePromos(items);
+    const deleted = cleanupOldPromos(getDb());
+    res.json({ scraped: items.length, saved, deleted, sources: sources || 'all' });
   } catch (err) {
     logger.error(`[/api/promos/scrape] ${err.message}`);
     res.status(500).json({ error: err.message });
@@ -97,11 +98,25 @@ router.post('/scrape-catalog', async (req, res) => {
   const { sources } = req.body || {};
   logger.info(`[/api/promos/scrape-catalog] Scraping catalogue — sources : ${sources ? sources.join(',') : 'toutes'}`);
   try {
-    const items = await scrapeAllCatalog(sources);
-    const saved = savePromos(items);
-    res.json({ scraped: items.length, saved, sources: sources || 'all' });
+    const items   = await scrapeAllCatalog(sources);
+    const saved   = savePromos(items);
+    const deleted = cleanupOldPromos(getDb());
+    res.json({ scraped: items.length, saved, deleted, sources: sources || 'all' });
   } catch (err) {
     logger.error(`[/api/promos/scrape-catalog] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/promos/cleanup
+ * Supprime manuellement les articles > 7 jours.
+ */
+router.post('/cleanup', (req, res) => {
+  try {
+    const deleted = cleanupOldPromos(getDb());
+    res.json({ deleted });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -134,6 +149,7 @@ router.get('/stats', (req, res) => {
 
 /**
  * Insère ou met à jour les articles en base (UPSERT sur source+url).
+ * Conserve le prix le plus bas jamais observé pour chaque article.
  */
 function savePromos(items) {
   const db   = getDb();
@@ -144,9 +160,9 @@ function savePromos(items) {
             @url, @image_url, @category, @item_type, @scraped_at)
     ON CONFLICT(source, url) DO UPDATE SET
       title            = excluded.title,
-      price            = excluded.price,
-      original_price   = excluded.original_price,
-      discount_percent = excluded.discount_percent,
+      price            = CASE WHEN excluded.price < promos.price THEN excluded.price ELSE promos.price END,
+      original_price   = CASE WHEN excluded.price < promos.price THEN excluded.original_price ELSE promos.original_price END,
+      discount_percent = CASE WHEN excluded.price < promos.price THEN excluded.discount_percent ELSE promos.discount_percent END,
       image_url        = excluded.image_url,
       category         = excluded.category,
       item_type        = excluded.item_type,
@@ -167,6 +183,17 @@ function savePromos(items) {
   });
   insert(items);
   return count;
+}
+
+/**
+ * Supprime les articles dont scraped_at est antérieur à 7 jours.
+ * Les articles rescrapés ont leur scraped_at mis à jour → ils survivent.
+ */
+function cleanupOldPromos(db) {
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const result = db.prepare(`DELETE FROM promos WHERE scraped_at < ?`).run(cutoff);
+  if (result.changes > 0) logger.info(`[promos] Nettoyage : ${result.changes} articles supprimés (> 7 jours)`);
+  return result.changes;
 }
 
 module.exports = router;
