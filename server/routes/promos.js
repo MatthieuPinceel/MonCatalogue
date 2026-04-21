@@ -4,7 +4,7 @@ const express  = require('express');
 const router   = express.Router();
 const { getDb } = require('../db/init');
 const { scrapeAll, scrapeAllCatalog } = require('../services/scraper');
-const { classifyItems }               = require('../services/ai-classifier');
+const { classifyItems, analyzeItem }  = require('../services/ai-classifier');
 const logger   = require('../services/logger');
 
 /**
@@ -166,51 +166,70 @@ router.get('/stats', (req, res) => {
 
 /**
  * POST /api/promos/classify
- * Utilise Claude pour classifier les articles sans discount_percent comme "promo" ou "catalog".
- * Traite par lots de 20 pour limiter les coûts.
+ * Sans body : classifie tous les articles sans remise (max 100).
+ * Avec body { ids: [...] } : classifie uniquement les IDs fournis.
  */
 router.post('/classify', async (req, res) => {
   try {
-    const db = getDb();
-    const rows = db.prepare(
-      `SELECT id, title, price, original_price, source
-       FROM promos
-       WHERE discount_percent IS NULL AND item_type != 'catalog'
-       ORDER BY scraped_at DESC
-       LIMIT 100`
-    ).all();
+    const db  = getDb();
+    const { ids } = req.body || {};
 
-    if (!rows.length) {
-      return res.json({ classified: 0, promoted: 0, message: 'Aucun article à classifier.' });
+    let rows;
+    if (ids && ids.length) {
+      const ph = ids.map(() => '?').join(',');
+      rows = db.prepare(
+        `SELECT id, title, price, original_price, source FROM promos WHERE id IN (${ph})`
+      ).all(...ids);
+    } else {
+      rows = db.prepare(
+        `SELECT id, title, price, original_price, source
+         FROM promos
+         WHERE discount_percent IS NULL AND item_type != 'catalog'
+         ORDER BY scraped_at DESC LIMIT 100`
+      ).all();
     }
 
-    const BATCH = 20;
-    const updateStmt = db.prepare(
-      `UPDATE promos SET item_type = ?, discount_percent = NULL WHERE id = ?`
-    );
+    if (!rows.length) return res.json({ classified: 0, promoted: 0, message: 'Aucun article à classifier.' });
 
-    let classifiedCount = 0;
-    let promotedCount   = 0;
+    const BATCH      = 20;
+    const updateStmt = db.prepare(`UPDATE promos SET item_type = ? WHERE id = ?`);
+    let classified   = 0, promoted = 0;
 
     for (let i = 0; i < rows.length; i += BATCH) {
-      const batch   = rows.slice(i, i + BATCH);
-      const results = await classifyItems(batch);
-
-      const applyBatch = db.transaction(() => {
+      const results = await classifyItems(rows.slice(i, i + BATCH));
+      db.transaction(() => {
         for (const r of results) {
           const newType = r.is_promo ? 'promo' : 'catalog';
           updateStmt.run(newType, r.id);
-          classifiedCount++;
-          if (r.is_promo) promotedCount++;
+          classified++;
+          if (r.is_promo) promoted++;
           logger.info(`[classify] ID ${r.id} → ${newType} (${r.confidence}) : ${r.reason}`);
         }
-      });
-      applyBatch();
+      })();
     }
 
-    res.json({ classified: classifiedCount, promoted: promotedCount });
+    res.json({ classified, promoted });
   } catch (err) {
     logger.error(`[/api/promos/classify] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/promos/:id/analyze
+ * Analyse en profondeur un article avec Claude (prix marché, recommandation).
+ */
+router.post('/:id/analyze', async (req, res) => {
+  try {
+    const db   = getDb();
+    const item = db.prepare('SELECT * FROM promos WHERE id = ?').get(req.params.id);
+    if (!item) return res.status(404).json({ error: 'Article non trouvé.' });
+
+    logger.info(`[analyze] ID ${item.id} — "${item.title}"`);
+    const result = await analyzeItem(item);
+    res.json(result);
+  } catch (err) {
+    logger.error(`[/api/promos/:id/analyze] ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });

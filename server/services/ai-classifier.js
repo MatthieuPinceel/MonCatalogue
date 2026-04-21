@@ -79,4 +79,65 @@ async function classifyItems(items) {
   }
 }
 
-module.exports = { classifyItems };
+const ANALYZE_PROMPT = `Tu es un expert en prix pour les produits TCG (Pokémon, Lorcana, Magic), Lego, jeux vidéo et jeux de société en France.
+
+On te donne un article scrapé depuis une boutique en ligne. Analyse-le et donne :
+- verdict : "excellent" (affaire exceptionnelle), "bon" (bon prix), "correct" (prix normal), "moyen" (un peu cher), "mauvais" (pas intéressant)
+- score : note de 1 (très mauvais) à 5 (excellent)
+- resume : une phrase courte résumant ton avis
+- explication : 2-3 phrases expliquant ton raisonnement (prix marché, comparaison, contexte)
+- recommandation : conseil concret (ex: "Achetez maintenant", "Attendez les soldes", "Prix habituel, rien d'urgent")
+
+Contexte marché France 2024-2025 :
+- Booster Pokémon standard : 4-5€, Display (36 boosters) : 120-150€
+- ETB Pokémon : 45-60€, Coffret premium : 30-50€
+- Booster Lorcana : 4-5€, Display Lorcana : 100-130€
+- Set Lego moyen : 50-80€ (prix public MSRP)
+- Jeux PS5/Xbox neufs : 50-70€, Switch : 40-60€
+
+Réponds UNIQUEMENT en JSON valide.`;
+
+/**
+ * Analyse un article individuel avec Claude.
+ * @param {{id, title, price, original_price, discount_percent, source, category, url}} item
+ * @returns {Promise<{verdict, score, resume, explication, recommandation}>}
+ */
+async function analyzeItem(item) {
+  const lines = [
+    `Titre : ${item.title}`,
+    `Source : ${item.source}`,
+    `Catégorie : ${item.category || 'inconnue'}`,
+    `Prix actuel : ${item.price}€`,
+  ];
+  if (item.original_price) lines.push(`Prix original : ${item.original_price}€`);
+  if (item.discount_percent) lines.push(`Remise affichée : -${item.discount_percent}%`);
+  if (item.url) lines.push(`URL : ${item.url}`);
+
+  const response = await client.messages.create({
+    model: 'claude-haiku-4-5',
+    max_tokens: 512,
+    system: [{ type: 'text', text: ANALYZE_PROMPT, cache_control: { type: 'ephemeral' } }],
+    output_config: {
+      format: {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: {
+            verdict:         { type: 'string', enum: ['excellent', 'bon', 'correct', 'moyen', 'mauvais'] },
+            score:           { type: 'number' },
+            resume:          { type: 'string' },
+            explication:     { type: 'string' },
+            recommandation:  { type: 'string' }
+          },
+          required: ['verdict', 'score', 'resume', 'explication', 'recommandation']
+        }
+      }
+    },
+    messages: [{ role: 'user', content: lines.join('\n') }]
+  });
+
+  const text = response.content.find(b => b.type === 'text')?.text || '{}';
+  return JSON.parse(text);
+}
+
+module.exports = { classifyItems, analyzeItem };

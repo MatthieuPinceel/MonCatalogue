@@ -32,6 +32,14 @@ function resetAndLoad() { promoPage = 0; loadPromos(); }
 
 const CAT_ICONS = { TCG: '🃏', Lego: '🧱', JeuxVideo: '🎮', JeuxSociete: '♟️' };
 
+const VERDICT_STYLE = {
+  excellent: { icon: '🌟', color: '#22c55e', label: 'Excellent' },
+  bon:       { icon: '✅', color: '#4ade80', label: 'Bon prix' },
+  correct:   { icon: '🔵', color: '#60a5fa', label: 'Prix correct' },
+  moyen:     { icon: '⚠️', color: '#f59e0b', label: 'Moyen' },
+  mauvais:   { icon: '❌', color: '#ef4444', label: 'Pas intéressant' },
+};
+
 function buildPromoCard(item) {
   const catBadge = item.category
     ? `<span style="font-size:.75rem;color:var(--text-muted)">${CAT_ICONS[item.category] || '🏷️'} ${item.category}</span>`
@@ -53,9 +61,46 @@ function buildPromoCard(item) {
           ${catBadge} ${escHtml(item.source)} · ${formatDate(item.scraped_at)}
           ${item.url ? `· <a href="${escHtml(item.url)}" target="_blank" rel="noopener">voir</a>` : ''}
         </div>
+        <div style="margin-top:.5rem">
+          <button class="btn btn-secondary" style="font-size:.75rem;padding:.2rem .6rem"
+            onclick="analyzePromoItem(${item.id}, '${escHtml(item.title).replace(/'/g, "\\'")}')">
+            🤖 Analyser
+          </button>
+        </div>
       </div>
     </div>`;
 }
+
+async function analyzePromoItem(id, title) {
+  Modal.open(`🤖 Analyse IA — ${title}`, `
+    <div style="text-align:center;padding:2rem;color:var(--text-muted)">
+      <div class="spinner" style="margin:0 auto 1rem"></div>
+      Analyse en cours…
+    </div>
+  `);
+  try {
+    const res = await API.post(`/promos/${id}/analyze`, {});
+    const v   = VERDICT_STYLE[res.verdict] || VERDICT_STYLE.correct;
+    const stars = '★'.repeat(Math.round(res.score || 3)) + '☆'.repeat(5 - Math.round(res.score || 3));
+    Modal.open(`🤖 Analyse IA — ${title}`, `
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem">
+        <span style="font-size:2rem">${v.icon}</span>
+        <div>
+          <div style="font-weight:700;font-size:1.1rem;color:${v.color}">${v.label}</div>
+          <div style="color:#f59e0b;font-size:1.1rem;letter-spacing:.1rem">${stars}</div>
+        </div>
+      </div>
+      <p style="font-weight:600;margin-bottom:.75rem;font-size:.95rem">${escHtml(res.resume)}</p>
+      <p style="color:var(--text-muted);font-size:.88rem;line-height:1.6;margin-bottom:1rem">${escHtml(res.explication)}</p>
+      <div style="background:var(--bg);border-left:3px solid ${v.color};padding:.75rem 1rem;border-radius:4px;font-size:.88rem">
+        💡 ${escHtml(res.recommandation)}
+      </div>
+    `);
+  } catch (err) {
+    Modal.open('Erreur', `<p style="color:var(--danger)">${escHtml(err.message)}</p>`);
+  }
+}
+window.analyzePromoItem = analyzePromoItem;
 
 function renderPromos(items) {
   const grid     = document.getElementById('promoGrid');
