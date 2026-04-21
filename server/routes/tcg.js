@@ -228,4 +228,100 @@ router.get('/export', (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------
+// WISHLIST TCG — cartes + produits scellés
+// ---------------------------------------------------------------
+
+/** GET /api/tcg/wishlist */
+router.get('/wishlist', (req, res) => {
+  try {
+    const db   = getDb();
+    const { game } = req.query;
+    let sql = 'SELECT * FROM tcg_wishlist';
+    const args = [];
+    if (game) { sql += ' WHERE game = ?'; args.push(game); }
+    sql += ' ORDER BY game, product_type, name';
+    res.json(db.prepare(sql).all(...args));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/tcg/wishlist */
+router.post('/wishlist', (req, res) => {
+  try {
+    const db = getDb();
+    const { game, product_type, name, set_name, target_price, image_url, notes } = req.body;
+    if (!game || !product_type || !name) {
+      return res.status(400).json({ error: 'game, product_type et name sont requis' });
+    }
+    const result = db.prepare(`
+      INSERT INTO tcg_wishlist (game, product_type, name, set_name, target_price, image_url, notes, added_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `).run(game, product_type, name, set_name || null, target_price || null, image_url || null, notes || null);
+    res.json({ id: result.lastInsertRowid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** PUT /api/tcg/wishlist/:id */
+router.put('/wishlist/:id', (req, res) => {
+  try {
+    const db = getDb();
+    const { game, product_type, name, set_name, target_price, image_url, notes } = req.body;
+    db.prepare(`
+      UPDATE tcg_wishlist SET game=?, product_type=?, name=?, set_name=?, target_price=?, image_url=?, notes=?
+      WHERE id=?
+    `).run(game, product_type, name, set_name || null, target_price || null, image_url || null, notes || null, req.params.id);
+    res.json({ updated: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** DELETE /api/tcg/wishlist/:id */
+router.delete('/wishlist/:id', (req, res) => {
+  try {
+    const db = getDb();
+    db.prepare('DELETE FROM tcg_wishlist WHERE id = ?').run(req.params.id);
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/tcg/wishlist/prices
+ * Retourne la wishlist enrichie des meilleures offres trouvées dans promos.
+ */
+router.get('/wishlist/prices', (req, res) => {
+  try {
+    const db    = getDb();
+    const items = db.prepare('SELECT * FROM tcg_wishlist ORDER BY game, product_type, name').all();
+
+    const results = items.map(item => {
+      // Mots clés du nom (ignore mots trop courts)
+      const words = item.name.split(/\s+/).filter(w => w.length > 3).slice(0, 4);
+      if (!words.length) return { ...item, offers: [] };
+
+      const placeholders = words.map(() => 'title LIKE ?').join(' OR ');
+      const args = words.map(w => `%${w}%`);
+
+      const offers = db.prepare(
+        `SELECT source, title, price, original_price, discount_percent, url, image_url, scraped_at
+         FROM promos
+         WHERE (${placeholders}) AND category = 'TCG'
+         ORDER BY price ASC LIMIT 5`
+      ).all(...args);
+
+      return { ...item, offers };
+    });
+
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
