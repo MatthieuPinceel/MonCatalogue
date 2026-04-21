@@ -136,11 +136,18 @@
               <option value="JeuxSociete">Jeux de Société</option>
             </select>
             <select id="promoSortFilter" class="select">
-              <option value="date_desc">Plus récents</option>
-              <option value="discount_desc">🔥 Meilleures réductions</option>
+              <option value="date_desc">📅 Plus récents</option>
+              <option value="discount_desc">🔥 Meilleure remise (%)</option>
+              <option value="savings_desc">💰 Plus grande économie (€)</option>
               <option value="price_asc">Prix croissant</option>
               <option value="price_desc">Prix décroissant</option>
+              <option value="alpha_asc">A → Z</option>
+              <option value="by_source">Par boutique</option>
+              <option value="by_category">Par catégorie</option>
             </select>
+            <label style="display:flex;align-items:center;gap:.4rem;font-size:.88rem;white-space:nowrap;cursor:pointer">
+              <input type="checkbox" id="promoOnlyFilter" /> En promo uniquement
+            </label>
           </div>
           <button class="btn btn-primary" id="scrapeNowBtn">⚡ Scraper maintenant</button>
         </div>
