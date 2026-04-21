@@ -25,6 +25,19 @@ function initDb() {
   try { db.exec(`ALTER TABLE gmail_promos ADD COLUMN category TEXT`);   } catch (e) {}
   try { db.exec(`ALTER TABLE gmail_promos ADD COLUMN ai_summary TEXT`); } catch (e) {}
   try { db.exec(`ALTER TABLE promos ADD COLUMN item_type TEXT DEFAULT 'promo'`); } catch (e) {}
+  try {
+    db.exec(`CREATE TABLE IF NOT EXISTS tcg_wishlist (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      game         TEXT NOT NULL,
+      product_type TEXT NOT NULL,
+      name         TEXT NOT NULL,
+      set_name     TEXT,
+      target_price REAL,
+      image_url    TEXT,
+      notes        TEXT,
+      added_at     TEXT NOT NULL
+    )`);
+  } catch (e) {}
   console.log(`[DB] Base initialisée : ${DB_PATH}`);
   return db;
 }
