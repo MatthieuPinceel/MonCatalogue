@@ -4,6 +4,25 @@ const axios   = require('axios');
 const cheerio = require('cheerio');
 const logger  = require('./logger');
 
+// Chromium optionnel — si puppeteer n'est pas installé, les scrapers retournent []
+let _withPage = null;
+function getWithPage() {
+  if (_withPage) return _withPage;
+  try {
+    _withPage = require('./chromium').withPage;
+    return _withPage;
+  } catch (e) {
+    logger.warn('[Scraper] Chromium non disponible (puppeteer manquant ?), scrapers Chromium désactivés');
+    return null;
+  }
+}
+
+async function withChromiumPage(fn) {
+  const withPage = getWithPage();
+  if (!withPage) return [];
+  return withPage(fn);
+}
+
 const DELAY = parseInt(process.env.SCRAPE_DELAY_MS || '1500', 10);
 const UA    = process.env.SCRAPE_USER_AGENT ||
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -52,11 +71,11 @@ async function scrapeFuretDuNord() { logger.info(`[Scraper] furetdunord — igno
 // FNAC — Chromium (anti-bot contourné)
 // ---------------------------------------------------------------
 async function scrapeFnacPage(url, category, itemType = 'promo') {
-  const { withPage } = require('./chromium');
+
   const maxPrice = itemType === 'catalog' ? 1500 : 500;
   logger.info(`[Chromium/Fnac] (${itemType}) — ${url}`);
   try {
-    return await withPage(async (page) => {
+    return await withChromiumPage(async (page) => {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForSelector('.Article-article, [class*="Article-item"]', { timeout: 15000 }).catch(() => {});
       await new Promise(r => setTimeout(r, 1500));
@@ -108,11 +127,11 @@ async function scrapeFnac() {
 // AMAZON — Chromium (anti-bot contourné, résultats variables)
 // ---------------------------------------------------------------
 async function scrapeAmazonPage(url, category, itemType = 'catalog') {
-  const { withPage } = require('./chromium');
+
   const maxPrice = itemType === 'catalog' ? 1500 : 500;
   logger.info(`[Chromium/Amazon] (${itemType}) — ${url}`);
   try {
-    return await withPage(async (page) => {
+    return await withChromiumPage(async (page) => {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 15000 }).catch(() => {});
       await new Promise(r => setTimeout(r, 1500));
@@ -161,12 +180,12 @@ async function scrapeAmazonPage(url, category, itemType = 'catalog') {
 // GOOGLE SHOPPING — Chromium (résultats comparateur de prix)
 // ---------------------------------------------------------------
 async function scrapeGoogleShoppingPage(query, category, itemType = 'catalog') {
-  const { withPage } = require('./chromium');
+
   const maxPrice = itemType === 'catalog' ? 1500 : 500;
   const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&tbm=shop&hl=fr&gl=fr`;
   logger.info(`[Chromium/GoogleShopping] "${query}"`);
   try {
-    return await withPage(async (page) => {
+    return await withChromiumPage(async (page) => {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       // Attendre les résultats shopping ou détecter un CAPTCHA
       await page.waitForSelector('.sh-dgr__content, .sh-pr__product-results-grid, [data-docid]', { timeout: 15000 }).catch(() => {});
@@ -218,11 +237,11 @@ async function scrapeGoogleShoppingPage(query, category, itemType = 'catalog') {
 // IDEALO — comparateur de prix FR, Chromium
 // ---------------------------------------------------------------
 async function scrapeIdealoPage(url, category, itemType = 'catalog') {
-  const { withPage } = require('./chromium');
+
   const maxPrice = itemType === 'catalog' ? 1500 : 500;
   logger.info(`[Chromium/Idealo] (${itemType}) — ${url}`);
   try {
-    return await withPage(async (page) => {
+    return await withChromiumPage(async (page) => {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForSelector('[class*="product"], .sr-resultList', { timeout: 15000 }).catch(() => {});
       await new Promise(r => setTimeout(r, 1500));
@@ -316,11 +335,11 @@ async function scrapeDealabsRSS(feedUrl, category) {
 // KING JOUET — Chromium (bloque axios avec 403)
 // ---------------------------------------------------------------
 async function scrapeKingJouetPage(url, category, itemType = 'promo') {
-  const { withPage } = require('./chromium');
+
   const maxPrice = itemType === 'catalog' ? 1500 : 500;
   logger.info(`[Chromium/KingJouet] (${itemType}) — ${url}`);
   try {
-    return await withPage(async (page) => {
+    return await withChromiumPage(async (page) => {
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
       await page.waitForSelector('article.product-miniature, .produit-vignette, [class*="product-item"]', { timeout: 15000 }).catch(() => {});
       await new Promise(r => setTimeout(r, 1000));
