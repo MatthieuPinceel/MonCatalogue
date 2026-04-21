@@ -41,11 +41,13 @@ async function classifyItems(items) {
           type: 'json_schema',
           schema: {
             type: 'object',
+            additionalProperties: false,
             properties: {
               results: {
                 type: 'array',
                 items: {
                   type: 'object',
+                  additionalProperties: false,
                   properties: {
                     id:         { type: 'number' },
                     is_promo:   { type: 'boolean' },
@@ -122,6 +124,7 @@ async function analyzeItem(item) {
         type: 'json_schema',
         schema: {
           type: 'object',
+          additionalProperties: false,
           properties: {
             verdict:         { type: 'string', enum: ['excellent', 'bon', 'correct', 'moyen', 'mauvais'] },
             score:           { type: 'number' },
