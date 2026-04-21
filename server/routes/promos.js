@@ -34,10 +34,6 @@ router.get('/', (req, res) => {
       date_desc:     'scraped_at DESC'
     };
     sql += ` ORDER BY ${ORDER[sort] || ORDER.date_desc} LIMIT ? OFFSET ?`;
-      price_desc:    'price DESC',
-      date_desc:     'scraped_at DESC'
-    };
-    sql += ` ORDER BY ${ORDER[sort] || ORDER.date_desc} LIMIT ? OFFSET ?`;
     args.push(parseInt(limit, 10), parseInt(offset, 10));
 
     const rows = db.prepare(sql).all(...args);
