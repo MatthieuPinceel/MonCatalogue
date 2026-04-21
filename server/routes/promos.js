@@ -14,23 +14,26 @@ const logger   = require('../services/logger');
 router.get('/', (req, res) => {
   try {
     const db       = getDb();
-    const { source, category, sort, limit = 50, offset = 0 } = req.query;
+    const { source, category, sort, promo_only, limit = 50, offset = 0 } = req.query;
 
     let sql    = 'SELECT * FROM promos WHERE 1=1';
     const args = [];
 
-    if (source) {
-      sql += ' AND source = ?';
-      args.push(source);
-    }
-    if (category) {
-      sql += ' AND category = ?';
-      args.push(category);
-    }
+    if (source)     { sql += ' AND source = ?';   args.push(source); }
+    if (category)   { sql += ' AND category = ?'; args.push(category); }
+    if (promo_only === '1') { sql += ' AND discount_percent IS NOT NULL AND original_price IS NOT NULL'; }
 
     const ORDER = {
       discount_desc: 'discount_percent DESC NULLS LAST, scraped_at DESC',
+      savings_desc:  'CASE WHEN original_price IS NOT NULL THEN (original_price - price) ELSE -1 END DESC',
       price_asc:     'price ASC',
+      price_desc:    'price DESC',
+      alpha_asc:     'title ASC COLLATE NOCASE',
+      by_source:     'source ASC, discount_percent DESC NULLS LAST',
+      by_category:   'category ASC NULLS LAST, discount_percent DESC NULLS LAST',
+      date_desc:     'scraped_at DESC'
+    };
+    sql += ` ORDER BY ${ORDER[sort] || ORDER.date_desc} LIMIT ? OFFSET ?`;
       price_desc:    'price DESC',
       date_desc:     'scraped_at DESC'
     };
