@@ -6,15 +6,17 @@
 let promoPage   = 0;
 const PROMO_LIMIT = 24;
 
-async function loadPromos(reset = false) {
+async function loadPromos(reset = true) {
   if (reset) promoPage = 0;
-  const source   = document.getElementById('promoSourceFilter').value;
-  const category = document.getElementById('promoCategoryFilter').value;
-  const sort     = document.getElementById('promoSortFilter').value;
-  const params   = new URLSearchParams({ limit: PROMO_LIMIT, offset: promoPage * PROMO_LIMIT });
-  if (source)   params.set('source',   source);
-  if (category) params.set('category', category);
-  if (sort)     params.set('sort',     sort);
+  const source     = document.getElementById('promoSourceFilter').value;
+  const category   = document.getElementById('promoCategoryFilter').value;
+  const sort       = document.getElementById('promoSortFilter').value;
+  const promoOnly  = document.getElementById('promoOnlyFilter').checked ? '1' : '';
+  const params     = new URLSearchParams({ limit: PROMO_LIMIT, offset: promoPage * PROMO_LIMIT });
+  if (source)     params.set('source',     source);
+  if (category)   params.set('category',   category);
+  if (sort)       params.set('sort',       sort);
+  if (promoOnly)  params.set('promo_only', promoOnly);
 
   try {
     const data = await API.get(`/promos?${params}`);
@@ -130,7 +132,7 @@ function renderPagination(total, offset, limit) {
   container.innerHTML = html;
 
   container.querySelectorAll('.page-btn').forEach(btn => {
-    btn.addEventListener('click', () => { promoPage = parseInt(btn.dataset.p, 10); loadPromos(); });
+    btn.addEventListener('click', () => { promoPage = parseInt(btn.dataset.p, 10); loadPromos(true); });
   });
 }
 
@@ -156,9 +158,10 @@ document.getElementById('scrapeNowBtn').addEventListener('click', async () => {
 });
 
 // ── Filtres ───────────────────────────────────────────────────
-document.getElementById('promoSourceFilter').addEventListener('change', () => loadPromos(true));
+document.getElementById('promoSourceFilter').addEventListener('change',  () => loadPromos(true));
 document.getElementById('promoCategoryFilter').addEventListener('change', () => loadPromos(true));
-document.getElementById('promoSortFilter').addEventListener('change', () => loadPromos(true));
+document.getElementById('promoSortFilter').addEventListener('change',     () => loadPromos(true));
+document.getElementById('promoOnlyFilter').addEventListener('change',     () => loadPromos(true));
 
 // Charger les sources disponibles dans le filtre
 async function loadPromoSources() {
