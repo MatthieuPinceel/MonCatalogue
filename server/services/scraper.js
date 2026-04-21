@@ -313,40 +313,56 @@ async function scrapeDealabsRSS(feedUrl, category) {
 }
 
 // ---------------------------------------------------------------
-// KING JOUET — HTML serveur, Cheerio OK, pagination /pageN.htm
+// KING JOUET — Chromium (bloque axios avec 403)
 // ---------------------------------------------------------------
 async function scrapeKingJouetPage(url, category, itemType = 'promo') {
+  const { withPage } = require('./chromium');
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/KingJouet] (${itemType}) — ${url}`);
   try {
-    await sleep(DELAY);
-    const { data } = await makeHttp('https://www.king-jouet.com/').get(url);
-    const $        = cheerio.load(data);
-    const results  = [];
-    const maxPrice = itemType === 'catalog' ? 1500 : 500;
+    return await withPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector('article.product-miniature, .produit-vignette, [class*="product-item"]', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 1000));
 
-    // Sélecteurs King Jouet (PrestaShop-like)
-    $('article.product-miniature, .produit-vignette, [class*="product-item"]').each((i, el) => {
-      const title = $(el).find('[class*="product-title"], [class*="produit-lib"], h2, h3').first().text().trim()
-                 || $(el).find('a[title]').first().attr('title') || '';
-      if (!title || title.length < 3) return;
-      const priceOld = normalizePrice($(el).find('[class*="regular-price"], [class*="old-price"], s, del').first().text(), maxPrice);
-      const priceNew = normalizePrice($(el).find('[class*="price-sale"], [class*="product-price"], .price').first().text(), maxPrice);
-      const price    = priceNew || priceOld;
-      if (!price) return;
-      const href = $(el).find('a').first().attr('href') || '';
-      results.push({
-        source: 'kingjouet', title, price,
-        original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
-        discount_percent: calcDiscount(priceOld, priceNew),
-        url:       href.startsWith('http') ? href : `https://www.king-jouet.com${href}`,
-        image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
-        category:  guessCategoryFromTitle(title) || category,
-        item_type: itemType,
-        scraped_at: new Date().toISOString()
+      const items = await page.evaluate(() => {
+        const results = [];
+        document.querySelectorAll('article.product-miniature, .produit-vignette, [class*="product-item"]').forEach(el => {
+          const title = (
+            el.querySelector('[class*="product-title"], [class*="produit-lib"], h2, h3')?.textContent?.trim() ||
+            el.querySelector('a[title]')?.title || ''
+          );
+          if (!title || title.length < 3) return;
+          results.push({
+            title,
+            priceNew: el.querySelector('[class*="price-sale"], [class*="product-price"], .price')?.textContent?.trim() || '',
+            priceOld: el.querySelector('[class*="regular-price"], [class*="old-price"], s, del')?.textContent?.trim() || '',
+            img:      el.querySelector('img')?.src || el.querySelector('img')?.dataset?.src || '',
+            href:     el.querySelector('a')?.href || '',
+          });
+        });
+        return results;
       });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const priceNew = normalizePrice(item.priceNew, maxPrice);
+        const priceOld = normalizePrice(item.priceOld, maxPrice);
+        const price    = priceNew || priceOld;
+        if (!price) return null;
+        return {
+          source: 'kingjouet', title: item.title, price,
+          original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
+          discount_percent: calcDiscount(priceOld, priceNew),
+          url:       item.href || url,
+          image_url: item.img || null,
+          category:  guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
     });
-    return results;
   } catch (err) {
-    logger.error(`[Scraper] kingjouet erreur sur ${url} : ${err.message}`);
+    logger.error(`[Chromium/KingJouet] erreur sur ${url} : ${err.message}`);
     return [];
   }
 }
@@ -357,10 +373,10 @@ async function scrapeKingJouetPaginated(baseUrl, category, itemType = 'promo', m
     const url   = baseUrl.replace('page1.htm', `page${page}.htm`);
     const items = await scrapeKingJouetPage(url, category, itemType);
     all.push(...items);
-    if (items.length < 5) break; // Dernière page probablement
-    await sleep(DELAY);
+    if (items.length < 5) break;
+    await new Promise(r => setTimeout(r, DELAY));
   }
-  logger.info(`[Scraper] kingjouet (${itemType}) — ${all.length} articles (${maxPages} pages max)`);
+  logger.info(`[Chromium/KingJouet] (${itemType}) — ${all.length} articles (${maxPages} pages max)`);
   return all;
 }
 
