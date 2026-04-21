@@ -35,7 +35,8 @@ function normalizePrice(str) {
   if (!str) return null;
   const cleaned = String(str).replace(/\s/g, '').replace(/[^\d,\.]/g, '').replace(',', '.').trim();
   const val = parseFloat(cleaned);
-  return isNaN(val) || val <= 0 ? null : val;
+  // Prix invalide : NaN, négatif, zéro, ou > 500 € (probablement un code/référence)
+  return isNaN(val) || val <= 0 || val > 500 ? null : val;
 }
 
 function calcDiscount(original, sale) {
@@ -59,85 +60,19 @@ async function scrapeFnac() {
 }
 
 // ---------------------------------------------------------------
-// SMYTHS TOYS
+// SMYTHS TOYS — bloqué par anti-bot ("Pardon Our Interruption")
 // ---------------------------------------------------------------
 async function scrapeSmyths() {
-  const source = 'smyths';
-  const urls   = [
-    'https://www.smythstoys.com/fr/fr-fr/jouets/mega-promos/c/mega-promos',
-    'https://www.smythstoys.com/fr/fr-fr/jouets/super-promos/c/super-promos'
-  ];
-  logger.info(`[Scraper] ${source} — début`);
-  const results = [];
-  for (const url of urls) {
-    try {
-      await sleep(DELAY);
-      const { data } = await makeHttp('https://www.smythstoys.com/fr/fr-fr/').get(url);
-      const $ = cheerio.load(data);
-
-      $('.product-item, [class*="productItem"], [class*="product-item"]').each((i, el) => {
-        const title = $(el).find('.product__name, [class*="product__name"], [class*="productName"], h2, h3').first().text().trim();
-        if (!title || title.length < 3) return;
-        const priceNew = normalizePrice($(el).find('[class*="salePrice"], [class*="sale-price"], [class*="now-price"]').first().text());
-        const priceOld = normalizePrice($(el).find('[class*="wasPrice"], [class*="was-price"], [class*="old-price"], s').first().text());
-        const price    = priceNew || normalizePrice($(el).find('.price, [class*="price"]').first().text());
-        if (!price) return;
-        const href = $(el).find('a.product__image-link, a').first().attr('href') || '';
-        results.push({
-          source, title, price,
-          original_price:   priceOld,
-          discount_percent: calcDiscount(priceOld, price),
-          url:       href.startsWith('http') ? href : `https://www.smythstoys.com${href}`,
-          image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
-          category:  guessCategoryFromTitle(title),
-          scraped_at: new Date().toISOString()
-        });
-      });
-    } catch (err) {
-      logger.warn(`[Scraper] ${source} erreur sur ${url} : ${err.message}`);
-    }
-  }
-  logger.info(`[Scraper] ${source} — ${results.length} articles`);
-  return results;
+  logger.info(`[Scraper] smyths — ignoré (anti-bot, couvert par Gmail)`);
+  return [];
 }
 
 // ---------------------------------------------------------------
-// FURET DU NORD
+// FURET DU NORD — 403 bloqué
 // ---------------------------------------------------------------
 async function scrapeFuretDuNord() {
-  const source = 'furetdunord';
-  const url    = 'https://www.furet.com/livres/livres-a-prix-reduits/loisirs-et-sports/jeux.html';
-  logger.info(`[Scraper] ${source} — début`);
-  try {
-    await sleep(DELAY);
-    const { data } = await makeHttp('https://www.furet.com/').get(url);
-    const $        = cheerio.load(data);
-    const results  = [];
-
-    $('[class*="product"], article').each((i, el) => {
-      const title = $(el).find('[class*="title"], [class*="name"], a[class*="product"], h2, h3').first().text().trim();
-      if (!title || title.length < 3) return;
-      const priceNew = normalizePrice($(el).find('[class*="promo"], [class*="sale"], [class*="special"]').first().text());
-      const priceOld = normalizePrice($(el).find('[class*="old"], [class*="barre"], s').first().text());
-      const price    = priceNew || normalizePrice($(el).find('[class*="price"]').first().text());
-      if (!price) return;
-      const href = $(el).find('a').first().attr('href') || '';
-      results.push({
-        source, title, price,
-        original_price:   priceOld,
-        discount_percent: calcDiscount(priceOld, price),
-        url:       href.startsWith('http') ? href : `https://www.furet.com${href}`,
-        image_url: $(el).find('img').first().attr('src') || null,
-        category:  guessCategoryFromTitle(title) || 'JeuxSociete',
-        scraped_at: new Date().toISOString()
-      });
-    });
-    logger.info(`[Scraper] ${source} — ${results.length} articles`);
-    return results;
-  } catch (err) {
-    logger.error(`[Scraper] ${source} erreur : ${err.message}`);
-    return [];
-  }
+  logger.info(`[Scraper] furetdunord — ignoré (403, couvert par Gmail)`);
+  return [];
 }
 
 // ---------------------------------------------------------------
@@ -153,21 +88,22 @@ async function scrapePhilibert() {
     const $        = cheerio.load(data);
     const results  = [];
 
-    $('article.product-miniature, .js-product-miniature').each((i, el) => {
-      const title   = $(el).find('.product-title a, h2, h3').first().text().trim();
-      if (!title) return;
-      const priceOld = normalizePrice($(el).find('.regular-price, s, .price-regular').first().text());
-      const priceNew = normalizePrice($(el).find('.product-price, .price:not(s)').first().text());
+    $('li.ajax_block_product').each((i, el) => {
+      const titleEl = $(el).find('a.product_img_link, .wrapper_product_2 a, h5 a, a[class*="product_name"]').first();
+      const title   = titleEl.text().trim() || $(el).find('a[title]').first().attr('title') || '';
+      if (!title || title.length < 3) return;
+      const priceOld = normalizePrice($(el).find('.old-price, s, [class*="old"]').first().text());
+      const priceNew = normalizePrice($(el).find('.product-price, .price:not(s):not(.old-price)').first().text());
       const price    = priceNew || priceOld;
       if (!price) return;
-      const href = $(el).find('a').first().attr('href') || '';
+      const href = titleEl.attr('href') || $(el).find('a').first().attr('href') || '';
       results.push({
         source, title, price,
         original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
         discount_percent: calcDiscount(priceOld, priceNew),
         url:       href.startsWith('http') ? href : `https://www.philibertnet.com${href}`,
         image_url: $(el).find('img').first().attr('src') || null,
-        category:  'JeuxSociete',
+        category:  guessCategoryFromTitle(title) || 'JeuxSociete',
         scraped_at: new Date().toISOString()
       });
     });
@@ -192,11 +128,13 @@ async function scrapeCultura() {
     const $        = cheerio.load(data);
     const results  = [];
 
-    $('[class*="product-tile"], [class*="ProductTile"], [class*="product-card"]').each((i, el) => {
-      const title   = $(el).find('[class*="product-name"], [class*="product-title"], h2, h3').first().text().trim();
+    // Sélecteurs confirmés par diagnostic : one-product, one-product__desc__name
+    $('.one-product, .one-card--product').each((i, el) => {
+      const title = $(el).find('.one-product__desc__name, [class*="product__desc__name"], [class*="product__name"]').first().text().trim()
+                 || $(el).find('a[title]').first().attr('title') || '';
       if (!title || title.length < 3) return;
-      const priceNew = normalizePrice($(el).find('[class*="price-sale"], [class*="price-promo"], [class*="sale"]').first().text());
-      const priceOld = normalizePrice($(el).find('[class*="price-old"], [class*="price-standard"], s').first().text());
+      const priceNew = normalizePrice($(el).find('[class*="price--sale"], [class*="price-sale"], [class*="promo"]').first().text());
+      const priceOld = normalizePrice($(el).find('[class*="price--old"], [class*="price-old"], s').first().text());
       const price    = priceNew || normalizePrice($(el).find('[class*="price"]').first().text());
       if (!price) return;
       const href = $(el).find('a').first().attr('href') || '';
@@ -205,7 +143,7 @@ async function scrapeCultura() {
         original_price:   priceOld,
         discount_percent: calcDiscount(priceOld, price),
         url:       href.startsWith('http') ? href : `https://www.cultura.com${href}`,
-        image_url: $(el).find('img').first().attr('src') || null,
+        image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
         category:  guessCategoryFromTitle(title),
         scraped_at: new Date().toISOString()
       });
