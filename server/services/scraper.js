@@ -175,12 +175,18 @@ const SCRAPERS = {
 // ---------------------------------------------------------------
 // Scrapers de catalogue (pages catégories, hors promo)
 // ---------------------------------------------------------------
+// URLs vérifiées manuellement — à mettre à jour si une page disparaît
 const CATALOG_SCRAPERS = {
-  'cultura-tcg':   () => scrapeCulturaPage('https://www.cultura.com/jeux/jeux-de-cartes-et-extension.html',  'TCG',         'catalog'),
-  'cultura-lego':  () => scrapeCulturaPage('https://www.cultura.com/jeux/jeux-de-construction.html',         'Lego',        'catalog'),
-  'cultura-jv':    () => scrapeCulturaPage('https://www.cultura.com/jeux-video.html',                        'JeuxVideo',   'catalog'),
-  'philibert-tcg': () => scrapePhilibertPage('https://www.philibertnet.com/fr/jeux-de-cartes-a-collectionner', 'TCG',       'catalog'),
-  'philibert-js':  () => scrapePhilibertPage('https://www.philibertnet.com/fr/jeux-de-societe',               'JeuxSociete','catalog'),
+  // Cultura — TCG
+  'cultura-pokemon':  () => scrapeCulturaPage('https://www.cultura.com/cartes-a-jouer/cartes-pokemon.html',      'TCG',        'catalog'),
+  'cultura-lorcana':  () => scrapeCulturaPage('https://www.cultura.com/cartes-a-jouer/cartes-lorcana.html',      'TCG',        'catalog'),
+  'cultura-magic':    () => scrapeCulturaPage('https://www.cultura.com/cartes-a-jouer/magic-the-gathering.html', 'TCG',        'catalog'),
+  // Cultura — Lego & Jeux (URLs à confirmer)
+  'cultura-lego':     () => scrapeCulturaPage('https://www.cultura.com/jeux/lego.html',                          'Lego',       'catalog'),
+  'cultura-jv':       () => scrapeCulturaPage('https://www.cultura.com/jeux-video.html',                         'JeuxVideo',  'catalog'),
+  // Philibert — URLs à confirmer sur le site
+  'philibert-tcg':    () => scrapePhilibertPage('https://www.philibertnet.com/fr/jeux-de-cartes-a-collectionner', 'TCG',       'catalog'),
+  'philibert-js':     () => scrapePhilibertPage('https://www.philibertnet.com/fr/jeux-de-societe',                'JeuxSociete','catalog'),
 };
 
 async function scrapeAll(only) {
