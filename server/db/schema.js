@@ -192,6 +192,22 @@ CREATE TABLE IF NOT EXISTS api_usage (
 
 CREATE INDEX IF NOT EXISTS idx_api_usage_month ON api_usage(created_at);
 
+-- ================================================================
+-- Wishlist TCG — cartes ET produits scellés
+-- ================================================================
+
+CREATE TABLE IF NOT EXISTS tcg_wishlist (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  game         TEXT NOT NULL,          -- 'pokemon', 'lorcana', 'magic', 'one_piece', 'autre'
+  product_type TEXT NOT NULL,          -- 'carte', 'booster', 'display', 'etb', 'tin', 'coffret', 'deck', 'blister', 'bundle', 'autre'
+  name         TEXT NOT NULL,
+  set_name     TEXT,
+  target_price REAL,                   -- budget max que l'utilisateur veut payer
+  image_url    TEXT,
+  notes        TEXT,
+  added_at     TEXT NOT NULL
+);
+
 -- Calendrier des sorties TCG
 CREATE TABLE IF NOT EXISTS tcg_releases (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
