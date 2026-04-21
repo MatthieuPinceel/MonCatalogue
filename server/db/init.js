@@ -24,6 +24,7 @@ function initDb() {
   // Migrations non destructives
   try { db.exec(`ALTER TABLE gmail_promos ADD COLUMN category TEXT`);   } catch (e) {}
   try { db.exec(`ALTER TABLE gmail_promos ADD COLUMN ai_summary TEXT`); } catch (e) {}
+  try { db.exec(`ALTER TABLE promos ADD COLUMN item_type TEXT DEFAULT 'promo'`); } catch (e) {}
   console.log(`[DB] Base initialisée : ${DB_PATH}`);
   return db;
 }
