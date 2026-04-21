@@ -305,22 +305,17 @@ async function scanPromoEmails(days = 7) {
     const date     = headers.find(h => h.name === 'Date')?.value    || '';
     const snippet  = detail.data.snippet || '';
 
-    const extracted  = extractPromosFromText(subject + ' ' + snippet);
-    const category   = guessCategoryFromEmail(subject + ' ' + snippet + ' ' + sender);
+    const extracted = extractPromosFromText(subject + ' ' + snippet);
+    const category  = guessCategoryFromEmail(subject + ' ' + snippet + ' ' + sender);
 
-    // Extraction Vision si clé dispo
-    const htmlBody   = getHtmlBody(detail.data.payload);
-    const imageUrls  = htmlBody ? extractImageUrls(htmlBody) : [];
-    const aiSummary  = await analyzeWithVision(imageUrls);
-
+    // Vision N'EST PAS appelé automatiquement au scan — utiliser le bouton "Analyser avec Vision"
     db.prepare(`
       INSERT OR IGNORE INTO gmail_promos
         (message_id, subject, sender, snippet, extracted_promos, category, ai_summary, received_at, processed_at, used_ai)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
-    `).run(msg.id, subject, sender, snippet, JSON.stringify(extracted), category,
-           aiSummary ? JSON.stringify(aiSummary) : null, date, aiSummary ? 1 : 0);
+      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, datetime('now'), 0)
+    `).run(msg.id, subject, sender, snippet, JSON.stringify(extracted), category, date);
 
-    saved.push({ message_id: msg.id, subject, sender, extracted, category, ai_summary: aiSummary });
+    saved.push({ message_id: msg.id, subject, sender, extracted, category });
   }
 
   logger.info(`[Gmail] ${saved.length} email(s) enregistré(s)`);
