@@ -7,11 +7,13 @@ let promoPage   = 0;
 const PROMO_LIMIT = 24;
 
 async function loadPromos() {
+  const itemType  = document.getElementById('promoTypeFilter').value;
   const source    = document.getElementById('promoSourceFilter').value;
   const category  = document.getElementById('promoCategoryFilter').value;
   const sort      = document.getElementById('promoSortFilter').value;
   const promoOnly = document.getElementById('promoOnlyFilter').checked ? '1' : '';
   const params    = new URLSearchParams({ limit: PROMO_LIMIT, offset: promoPage * PROMO_LIMIT });
+  if (itemType)  params.set('item_type',  itemType);
   if (source)    params.set('source',     source);
   if (category)  params.set('category',   category);
   if (sort)      params.set('sort',       sort);
@@ -56,13 +58,16 @@ function buildPromoCard(item) {
 }
 
 function renderPromos(items) {
-  const grid = document.getElementById('promoGrid');
+  const grid     = document.getElementById('promoGrid');
+  const itemType = document.getElementById('promoTypeFilter').value;
   grid.innerHTML = '';
   if (!items.length) {
+    const label  = itemType === 'catalog' ? 'catalogue' : 'promo';
+    const action = itemType === 'catalog' ? 'Scanner le catalogue' : 'Lancer un scraping';
     grid.innerHTML = `
       <div class="empty-state" style="grid-column:1/-1">
-        <div class="empty-icon">🏷️</div>
-        <p>Aucune promo trouvée.<br>Lancez un scraping ou ajustez les filtres.</p>
+        <div class="empty-icon">${itemType === 'catalog' ? '📦' : '🏷️'}</div>
+        <p>Aucun article ${label} trouvé.<br>${action} ou ajustez les filtres.</p>
       </div>`;
     return;
   }
@@ -109,7 +114,25 @@ document.getElementById('scrapeNowBtn').addEventListener('click', async () => {
   }
 });
 
+// ── Scanner catalogue ─────────────────────────────────────────
+document.getElementById('scrapeCatalogBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('scrapeCatalogBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Scan...';
+  try {
+    const res = await API.post('/promos/scrape-catalog', {});
+    toast(`Catalogue : ${res.scraped} articles trouvés, ${res.saved} enregistrés`, 'success');
+    resetAndLoad();
+  } catch (err) {
+    toast(`Erreur : ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📦 Scanner catalogue';
+  }
+});
+
 // ── Filtres ───────────────────────────────────────────────────
+document.getElementById('promoTypeFilter').addEventListener('change',    resetAndLoad);
 document.getElementById('promoSourceFilter').addEventListener('change',  resetAndLoad);
 document.getElementById('promoCategoryFilter').addEventListener('change', resetAndLoad);
 document.getElementById('promoSortFilter').addEventListener('change',     resetAndLoad);
