@@ -39,27 +39,24 @@ async function classifyItems(items) {
       output_config: {
         format: {
           type: 'json_schema',
-          json_schema: {
-            name: 'classification_result',
-            schema: {
-              type: 'object',
-              properties: {
-                results: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      id:         { type: 'number' },
-                      is_promo:   { type: 'boolean' },
-                      confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-                      reason:     { type: 'string' }
-                    },
-                    required: ['id', 'is_promo', 'confidence', 'reason']
-                  }
+          schema: {
+            type: 'object',
+            properties: {
+              results: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id:         { type: 'number' },
+                    is_promo:   { type: 'boolean' },
+                    confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+                    reason:     { type: 'string' }
+                  },
+                  required: ['id', 'is_promo', 'confidence', 'reason']
                 }
-              },
-              required: ['results']
-            }
+              }
+            },
+            required: ['results']
           }
         }
       },
