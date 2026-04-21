@@ -14,7 +14,7 @@ const logger   = require('../services/logger');
 router.get('/', (req, res) => {
   try {
     const db       = getDb();
-    const { source, category, limit = 50, offset = 0 } = req.query;
+    const { source, category, sort, limit = 50, offset = 0 } = req.query;
 
     let sql    = 'SELECT * FROM promos WHERE 1=1';
     const args = [];
@@ -28,7 +28,13 @@ router.get('/', (req, res) => {
       args.push(category);
     }
 
-    sql += ' ORDER BY scraped_at DESC LIMIT ? OFFSET ?';
+    const ORDER = {
+      discount_desc: 'discount_percent DESC NULLS LAST, scraped_at DESC',
+      price_asc:     'price ASC',
+      price_desc:    'price DESC',
+      date_desc:     'scraped_at DESC'
+    };
+    sql += ` ORDER BY ${ORDER[sort] || ORDER.date_desc} LIMIT ? OFFSET ?`;
     args.push(parseInt(limit, 10), parseInt(offset, 10));
 
     const rows = db.prepare(sql).all(...args);
