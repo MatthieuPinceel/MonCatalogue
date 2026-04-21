@@ -10,9 +10,11 @@ async function loadPromos(reset = false) {
   if (reset) promoPage = 0;
   const source   = document.getElementById('promoSourceFilter').value;
   const category = document.getElementById('promoCategoryFilter').value;
+  const sort     = document.getElementById('promoSortFilter').value;
   const params   = new URLSearchParams({ limit: PROMO_LIMIT, offset: promoPage * PROMO_LIMIT });
   if (source)   params.set('source',   source);
   if (category) params.set('category', category);
+  if (sort)     params.set('sort',     sort);
 
   try {
     const data = await API.get(`/promos?${params}`);
@@ -156,6 +158,7 @@ document.getElementById('scrapeNowBtn').addEventListener('click', async () => {
 // ── Filtres ───────────────────────────────────────────────────
 document.getElementById('promoSourceFilter').addEventListener('change', () => loadPromos(true));
 document.getElementById('promoCategoryFilter').addEventListener('change', () => loadPromos(true));
+document.getElementById('promoSortFilter').addEventListener('change', () => loadPromos(true));
 
 // Charger les sources disponibles dans le filtre
 async function loadPromoSources() {
