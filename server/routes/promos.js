@@ -109,6 +109,22 @@ router.post('/scrape-catalog', async (req, res) => {
 });
 
 /**
+ * DELETE /api/promos/all
+ * Vide entièrement la table promos.
+ */
+router.delete('/all', (req, res) => {
+  try {
+    const db     = getDb();
+    const result = db.prepare('DELETE FROM promos').run();
+    logger.info(`[/api/promos/all] Base vidée : ${result.changes} articles supprimés`);
+    res.json({ deleted: result.changes });
+  } catch (err) {
+    logger.error(`[/api/promos/all] ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /api/promos/cleanup
  * Supprime manuellement les articles > 7 jours.
  */

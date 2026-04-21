@@ -131,6 +131,24 @@ document.getElementById('scrapeCatalogBtn').addEventListener('click', async () =
   }
 });
 
+// ── Vider toute la base ───────────────────────────────────────
+document.getElementById('clearAllPromosBtn').addEventListener('click', async () => {
+  if (!confirm('Supprimer TOUS les articles scrapés de la base ? Cette action est irréversible.')) return;
+  const btn = document.getElementById('clearAllPromosBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Suppression...';
+  try {
+    const res = await API.del('/promos/all');
+    toast(`Base vidée : ${res.deleted} articles supprimés`, 'success');
+    resetAndLoad();
+  } catch (err) {
+    toast(`Erreur : ${err.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🗑️ Vider la base';
+  }
+});
+
 // ── Filtres ───────────────────────────────────────────────────
 document.getElementById('promoTypeFilter').addEventListener('change',    resetAndLoad);
 document.getElementById('promoSourceFilter').addEventListener('change',  resetAndLoad);
