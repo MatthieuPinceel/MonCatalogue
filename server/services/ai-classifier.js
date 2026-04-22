@@ -81,39 +81,33 @@ async function classifyItems(items) {
   }
 }
 
-const ANALYZE_PROMPT = `Tu es un expert en prix pour les produits TCG (Pokémon, Lorcana, Magic), Lego, jeux vidéo et jeux de société en France.
+const ANALYZE_PROMPT = `Tu es un assistant qui analyse des articles scrapés depuis des boutiques en ligne et décrit la promotion exacte.
 
-On te donne un article scrapé depuis une boutique en ligne. Analyse-le et donne :
-- verdict : "excellent" (affaire exceptionnelle), "bon" (bon prix), "correct" (prix normal), "moyen" (un peu cher), "mauvais" (pas intéressant)
-- score : note de 1 (très mauvais) à 5 (excellent)
-- resume : une phrase courte résumant ton avis
-- explication : 2-3 phrases expliquant ton raisonnement (prix marché, comparaison, contexte)
-- recommandation : conseil concret (ex: "Achetez maintenant", "Attendez les soldes", "Prix habituel, rien d'urgent")
+À partir du titre, du prix, du prix original et de la source, identifie et décris précisément la promotion :
 
-Contexte marché France 2024-2025 :
-- Booster Pokémon standard : 4-5€, Display (36 boosters) : 120-150€
-- ETB Pokémon : 45-60€, Coffret premium : 30-50€
-- Booster Lorcana : 4-5€, Display Lorcana : 100-130€
-- Set Lego moyen : 50-80€ (prix public MSRP)
-- Jeux PS5/Xbox neufs : 50-70€, Switch : 40-60€
+- type_promo : le type exact parmi "remise_pourcentage", "prix_barre", "bundle", "solde", "destockage", "prix_normal", "inconnu"
+- description : description claire et concise de la promotion (ex: "Booster Pokémon SV09 à -25% chez Fnac", "Display 36 boosters au prix soldé")
+- economie_euros : économie en euros calculée (original - actuel), null si indisponible
+- economie_pourcentage : pourcentage de remise réel calculé, null si indisponible
+- conditions : conditions particulières détectées dans le titre (ex: "offre limitée", "jusqu'au X", "membre uniquement"), null si aucune
+- est_promo : true si c'est réellement une promotion, false si c'est le prix catalogue normal
 
 Réponds UNIQUEMENT en JSON valide.`;
 
 /**
- * Analyse un article individuel avec Claude.
+ * Analyse un article individuel avec Claude — décrit la promotion exacte.
  * @param {{id, title, price, original_price, discount_percent, source, category, url}} item
- * @returns {Promise<{verdict, score, resume, explication, recommandation}>}
+ * @returns {Promise<{type_promo, description, economie_euros, economie_pourcentage, conditions, est_promo}>}
  */
 async function analyzeItem(item) {
   const lines = [
     `Titre : ${item.title}`,
     `Source : ${item.source}`,
-    `Catégorie : ${item.category || 'inconnue'}`,
     `Prix actuel : ${item.price}€`,
   ];
   if (item.original_price) lines.push(`Prix original : ${item.original_price}€`);
   if (item.discount_percent) lines.push(`Remise affichée : -${item.discount_percent}%`);
-  if (item.url) lines.push(`URL : ${item.url}`);
+  if (item.category) lines.push(`Catégorie : ${item.category}`);
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5',
@@ -126,13 +120,14 @@ async function analyzeItem(item) {
           type: 'object',
           additionalProperties: false,
           properties: {
-            verdict:         { type: 'string', enum: ['excellent', 'bon', 'correct', 'moyen', 'mauvais'] },
-            score:           { type: 'number' },
-            resume:          { type: 'string' },
-            explication:     { type: 'string' },
-            recommandation:  { type: 'string' }
+            type_promo:           { type: 'string', enum: ['remise_pourcentage', 'prix_barre', 'bundle', 'solde', 'destockage', 'prix_normal', 'inconnu'] },
+            description:          { type: 'string' },
+            economie_euros:       { type: ['number', 'null'] },
+            economie_pourcentage: { type: ['number', 'null'] },
+            conditions:           { type: ['string', 'null'] },
+            est_promo:            { type: 'boolean' }
           },
-          required: ['verdict', 'score', 'resume', 'explication', 'recommandation']
+          required: ['type_promo', 'description', 'economie_euros', 'economie_pourcentage', 'conditions', 'est_promo']
         }
       }
     },

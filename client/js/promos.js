@@ -32,12 +32,14 @@ function resetAndLoad() { promoPage = 0; loadPromos(); }
 
 const CAT_ICONS = { TCG: '🃏', Lego: '🧱', JeuxVideo: '🎮', JeuxSociete: '♟️' };
 
-const VERDICT_STYLE = {
-  excellent: { icon: '🌟', color: '#22c55e', label: 'Excellent' },
-  bon:       { icon: '✅', color: '#4ade80', label: 'Bon prix' },
-  correct:   { icon: '🔵', color: '#60a5fa', label: 'Prix correct' },
-  moyen:     { icon: '⚠️', color: '#f59e0b', label: 'Moyen' },
-  mauvais:   { icon: '❌', color: '#ef4444', label: 'Pas intéressant' },
+const TYPE_PROMO_STYLE = {
+  remise_pourcentage: { icon: '🏷️', color: '#22c55e', label: 'Remise %' },
+  prix_barre:         { icon: '✂️',  color: '#4ade80', label: 'Prix barré' },
+  bundle:             { icon: '📦', color: '#60a5fa', label: 'Bundle' },
+  solde:              { icon: '🔖', color: '#f59e0b', label: 'Soldes' },
+  destockage:         { icon: '🚨', color: '#fb923c', label: 'Déstockage' },
+  prix_normal:        { icon: '🔵', color: '#94a3b8', label: 'Prix normal' },
+  inconnu:            { icon: '❓', color: '#94a3b8', label: 'Inconnu' },
 };
 
 function buildPromoCard(item) {
@@ -80,21 +82,32 @@ async function analyzePromoItem(id, title) {
   `);
   try {
     const res = await API.post(`/promos/${id}/analyze`, {});
-    const v   = VERDICT_STYLE[res.verdict] || VERDICT_STYLE.correct;
-    const stars = '★'.repeat(Math.round(res.score || 3)) + '☆'.repeat(5 - Math.round(res.score || 3));
+    const t   = TYPE_PROMO_STYLE[res.type_promo] || TYPE_PROMO_STYLE.inconnu;
+    const econEur = res.economie_euros != null
+      ? `<span style="color:#22c55e;font-weight:600">-${res.economie_euros.toFixed(2)} €</span>` : '';
+    const econPct = res.economie_pourcentage != null
+      ? `<span class="promo-badge">-${Math.round(res.economie_pourcentage)}%</span>` : '';
     Modal.open(`🤖 Analyse IA — ${title}`, `
-      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem">
-        <span style="font-size:2rem">${v.icon}</span>
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap">
+        <span style="font-size:2rem">${t.icon}</span>
         <div>
-          <div style="font-weight:700;font-size:1.1rem;color:${v.color}">${v.label}</div>
-          <div style="color:#f59e0b;font-size:1.1rem;letter-spacing:.1rem">${stars}</div>
+          <div style="font-weight:700;font-size:1.1rem;color:${t.color}">${t.label}</div>
+          <div style="font-size:.78rem;color:var(--text-muted)">${escHtml(res.type_promo)}</div>
         </div>
+        ${res.est_promo
+          ? `<span style="margin-left:auto;background:#22c55e22;color:#22c55e;padding:.25rem .65rem;border-radius:4px;font-size:.82rem;font-weight:600">✅ Promo confirmée</span>`
+          : `<span style="margin-left:auto;background:#94a3b822;color:#94a3b8;padding:.25rem .65rem;border-radius:4px;font-size:.82rem">Prix catalogue</span>`}
       </div>
-      <p style="font-weight:600;margin-bottom:.75rem;font-size:.95rem">${escHtml(res.resume)}</p>
-      <p style="color:var(--text-muted);font-size:.88rem;line-height:1.6;margin-bottom:1rem">${escHtml(res.explication)}</p>
-      <div style="background:var(--bg);border-left:3px solid ${v.color};padding:.75rem 1rem;border-radius:4px;font-size:.88rem">
-        💡 ${escHtml(res.recommandation)}
-      </div>
+      <p style="font-weight:600;margin-bottom:1rem;font-size:.96rem;line-height:1.5">${escHtml(res.description)}</p>
+      ${(econEur || econPct) ? `
+        <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:1rem">
+          <span style="color:var(--text-muted);font-size:.88rem">Économie :</span>
+          ${econEur} ${econPct}
+        </div>` : ''}
+      ${res.conditions ? `
+        <div style="background:var(--bg);border-left:3px solid ${t.color};padding:.75rem 1rem;border-radius:4px;font-size:.88rem">
+          ℹ️ ${escHtml(res.conditions)}
+        </div>` : ''}
     `);
   } catch (err) {
     Modal.open('Erreur', `<p style="color:var(--danger)">${escHtml(err.message)}</p>`);
