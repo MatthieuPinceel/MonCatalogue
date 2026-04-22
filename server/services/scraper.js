@@ -435,14 +435,15 @@ async function scrapeBcdJeuxPage(url, category, itemType = 'catalog') {
         return results;
       });
 
+      logger.info(`[Chromium/BcdJeux] ${items.length} carte(s) trouvée(s) sur ${url}`);
+
       const now = new Date().toISOString();
-      return items.map(item => {
+      const mapped = items.map(item => {
         const priceNew = normalizePrice(item.priceNew, maxPrice);
         const priceOld = normalizePrice(item.priceOld, maxPrice);
         const price    = priceNew || priceOld;
         if (!price) return null;
 
-        // Si le site fournit le % de remise directement, l'extraire
         let discountPct = calcDiscount(priceOld, priceNew);
         if (!discountPct && item.discount) {
           const m = item.discount.match(/(\d+)\s*%/);
@@ -462,6 +463,11 @@ async function scrapeBcdJeuxPage(url, category, itemType = 'catalog') {
           scraped_at:       now,
         };
       }).filter(Boolean);
+
+      logger.info(`[Chromium/BcdJeux] ${mapped.length}/${items.length} articles valides extraits (${itemType})`);
+      const withDiscount = mapped.filter(i => i.discount_percent);
+      if (withDiscount.length) logger.info(`[Chromium/BcdJeux] dont ${withDiscount.length} avec remise détectée`);
+      return mapped;
     });
   } catch (err) {
     logger.error(`[Chromium/BcdJeux] erreur sur ${url} : ${err.message}`);
