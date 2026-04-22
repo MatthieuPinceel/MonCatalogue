@@ -432,39 +432,49 @@ async function scrapeBcdJeuxPage(url, category, itemType = 'catalog') {
   logger.info(`[Chromium/BcdJeux] (${itemType}) — ${url}`);
   try {
     return await withChromiumPage(async (page) => {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
       await page.waitForSelector(
-        'article.product-miniature, .product-miniature, .js-product-miniature, .product_miniature',
+        '[data-id-product], article.product-miniature, .js-product-miniature, .product-miniature',
         { timeout: 15000 }
       ).catch(() => {});
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Debug : compter chaque sélecteur candidat
+      const dbg = await page.evaluate(() =>
+        ['[data-id-product]','article.product-miniature','.product-miniature',
+         '.js-product-miniature','.thumbnail-container','#js-product-list article',
+         '.products article','.product-item','[class*="product-card"]']
+          .map(s => `${s}:${document.querySelectorAll(s).length}`)
+          .join(' | ')
+      );
+      logger.info(`[Chromium/BcdJeux] sélecteurs debug → ${dbg}`);
 
       const items = await page.evaluate(() => {
         const results = [];
-        const cards = document.querySelectorAll(
-          'article.product-miniature, .product-miniature, .js-product-miniature'
-        );
+        // [data-id-product] = attribut PrestaShop universel, présent sur tous les thèmes
+        const cards = document.querySelectorAll('[data-id-product]');
         cards.forEach(el => {
-          const titleEl = el.querySelector('.product-title a, .product-name a, h2 a, h3 a, a[class*="product"]');
-          const title   = titleEl?.textContent?.trim() || el.querySelector('a[title]')?.title || '';
+          const titleEl = el.querySelector(
+            '.product-title a, .product-name a, h2 a, h3 a, ' +
+            '[class*="product-title"] a, [class*="product-name"] a, [class*="name"] a'
+          );
+          const title = titleEl?.textContent?.trim() || el.querySelector('a[title]')?.title || '';
           if (!title || title.length < 3) return;
 
+          // Prix courant (exclure les anciens prix)
           const priceNew = (
-            el.querySelector('.price, .product-price, [itemprop="price"]')?.textContent?.trim() ||
+            el.querySelector('.price:not(.regular-price), .product-price, [itemprop="price"]')?.textContent?.trim() ||
             el.querySelector('[class*="price"]')?.textContent?.trim() || ''
           );
           const priceOld = (
-            el.querySelector('.regular-price, .product-regular-price, s, del, [class*="old-price"], [class*="regular"]')?.textContent?.trim() || ''
+            el.querySelector('.regular-price, s, del, [class*="old-price"], [class*="regular"]')?.textContent?.trim() || ''
           );
-          const discount = el.querySelector('.discount-percentage, [class*="discount"]')?.textContent?.trim() || '';
-          const imgEl    = el.querySelector('img');
-          const linkEl   = titleEl || el.querySelector('a');
+          const discount = el.querySelector('[class*="discount"], [class*="reduction"]')?.textContent?.trim() || '';
+          const imgEl   = el.querySelector('img');
+          const linkEl  = titleEl || el.querySelector('a');
 
           results.push({
-            title,
-            priceNew,
-            priceOld,
-            discount,
+            title, priceNew, priceOld, discount,
             img:  imgEl?.src || imgEl?.dataset?.src || imgEl?.dataset?.lazy || '',
             href: linkEl?.href || '',
           });
