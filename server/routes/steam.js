@@ -188,9 +188,16 @@ async function fetchSteamWishlist() {
     logger.info(`[Steam/Wishlist] page ${page} — ${url}`);
     let data;
     try {
-      const resp = await http.get(url, { headers });
-      data = resp.data;
-      logger.info(`[Steam/Wishlist] statut HTTP ${resp.status} — type: ${typeof data} — clés: ${Object.keys(data || {}).slice(0, 5).join(', ') || '(vide)'}`);
+      const resp = await http.get(url, { headers, responseType: 'text' });
+      const raw  = resp.data;
+      logger.info(`[Steam/Wishlist] statut HTTP ${resp.status} — brut (80c) : ${String(raw).slice(0, 80)}`);
+      try {
+        data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      } catch (e) {
+        logger.error(`[Steam/Wishlist] parse JSON échoué : ${String(raw).slice(0, 200)}`);
+        break;
+      }
+      logger.info(`[Steam/Wishlist] parsé — type: ${Array.isArray(data) ? 'array' : typeof data} — ${Array.isArray(data) ? data.length + ' éléments' : Object.keys(data).length + ' clés'}`);
     } catch (e) {
       logger.error(`[Steam/Wishlist] erreur HTTP page ${page} : ${e.response?.status} ${e.message}`);
       break;
