@@ -515,7 +515,7 @@ async function scrapeBcdJeuxPage(url, category, itemType = 'catalog') {
 async function scrapeBcdJeuxPaginated(baseUrl, category, itemType = 'catalog', maxPages = 3) {
   const all = [];
   for (let p = 1; p <= maxPages; p++) {
-    const url   = p === 1 ? baseUrl : `${baseUrl}?p=${p}`;
+    const url   = p === 1 ? baseUrl : `${baseUrl}?page=${p}`;
     const items = await scrapeBcdJeuxPage(url, category, itemType);
     all.push(...items);
     if (items.length < 5) break;
@@ -526,7 +526,12 @@ async function scrapeBcdJeuxPaginated(baseUrl, category, itemType = 'catalog', m
 }
 
 async function scrapeBcdJeux() {
-  return scrapeBcdJeuxPage('https://www.bcd-jeux.fr/fr/promotions', null, 'promo');
+  // Pages éditoriales : pas de pagination
+  const promos  = await scrapeBcdJeuxPage('https://www.bcd-jeux.fr/page/11-promotions',              null, 'promo');
+  const soldes  = await scrapeBcdJeuxPage('https://www.bcd-jeux.fr/page/144-soldes-jeux-et-jouets',  null, 'promo');
+  // Catégorie numérique "2 achetés = 1 offert" : pagination ?page=N
+  const deux    = await scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/8301-promo-2-jeux-achetes-1-jeu-offert', null, 'promo', 2);
+  return [...promos, ...soldes, ...deux];
 }
 
 async function scrapeKingJouetPaginated(baseUrl, category, itemType = 'promo', maxPages = 3) {
@@ -781,8 +786,11 @@ const SCRAPERS = {
   'dealabs-lego':         () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/lego',        'Lego'),
   'dealabs-jv':           () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/jeux-video',  'JeuxVideo'),
   'dealabs-jouets':       () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/jeux-jouets', null),
-  // BCD Jeux — Chromium (WAF)
-  'bcd-jeux':             scrapeBcdJeux,
+  // BCD Jeux — Chromium (WAF) — URLs PrestaShop vérifiées
+  'bcd-jeux':             scrapeBcdJeux,   // agrège promos + soldes + 2pour1
+  'bcd-promos':           () => scrapeBcdJeuxPage('https://www.bcd-jeux.fr/page/11-promotions',             null, 'promo'),
+  'bcd-soldes':           () => scrapeBcdJeuxPage('https://www.bcd-jeux.fr/page/144-soldes-jeux-et-jouets', null, 'promo'),
+  'bcd-2pour1':           () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/8301-promo-2-jeux-achetes-1-jeu-offert', null, 'promo', 2),
   // Fnac — Chromium
   fnac:                   scrapeFnac,
   'fnac-pokemon':         () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4', 'TCG', 'promo'),
@@ -834,11 +842,15 @@ const CATALOG_SCRAPERS = {
   // Idealo — comparateur, Chromium (IDs catégorie stables)
   'idealo-pokemon':      () => scrapeIdealoPage('https://www.idealo.fr/cat/20338/cartes-pokemon.html', 'TCG',  'catalog'),
   'idealo-lego':         () => scrapeIdealoPage('https://www.idealo.fr/cat/1484/lego.html',             'Lego', 'catalog'),
-  // BCD Jeux — Chromium
-  'bcd-pokemon':         () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/pokemon',              'TCG',        'catalog'),
-  'bcd-lorcana':         () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/lorcana',              'TCG',        'catalog'),
-  'bcd-magic':           () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/magic-the-gathering',  'TCG',        'catalog'),
-  'bcd-jeux-societe':    () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/jeux-de-societe',      'JeuxSociete','catalog'),
+  // BCD Jeux — Chromium — IDs PrestaShop permanents + pages éditoriales stables
+  // Catégories numériques → pagination ?page=N
+  'bcd-pokemon':         () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/51185-jeux-de-cartes-a-collectionner-pokemon', 'TCG',        'catalog'),
+  'bcd-pokemon-fab':     () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fabricant/276-pokemon',                        'TCG',        'catalog'),
+  'bcd-lorcana':         () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/51188-disney-lorcana-tcg-jcc',                  'TCG',        'catalog'),
+  'bcd-lorcana-fab':     () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fabricant/920-disney-lorcana-tcg',              'TCG',        'catalog'),
+  // Pages éditoriales → pas de pagination
+  'bcd-tcg-global':      () => scrapeBcdJeuxPage('https://www.bcd-jeux.fr/page/133-jcc-jce-cartes-a-collectionner',           'TCG',        'catalog'),
+  'bcd-jds':             () => scrapeBcdJeuxPage('https://www.bcd-jeux.fr/page/57-les-jeux-de-societe-pour-toute-la-famille',  'JeuxSociete','catalog'),
 };
 
 async function scrapeAll(only) {
