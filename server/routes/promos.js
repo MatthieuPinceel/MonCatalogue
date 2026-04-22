@@ -15,15 +15,16 @@ const logger   = require('../services/logger');
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const { source, category, item_type, sort, promo_only, limit = 50, offset = 0 } = req.query;
+    const { source, category, item_type, sort, promo_only, q, limit = 50, offset = 0 } = req.query;
 
     let sql    = 'SELECT * FROM promos WHERE 1=1';
     const args = [];
 
-    if (source)     { sql += ' AND source = ?';     args.push(source); }
-    if (category)   { sql += ' AND category = ?';   args.push(category); }
-    if (item_type)  { sql += ' AND item_type = ?';  args.push(item_type); }
+    if (source)           { sql += ' AND source = ?';                  args.push(source); }
+    if (category)         { sql += ' AND category = ?';                args.push(category); }
+    if (item_type)        { sql += ' AND item_type = ?';               args.push(item_type); }
     if (promo_only === '1') { sql += ' AND discount_percent IS NOT NULL AND original_price IS NOT NULL'; }
+    if (q)                { sql += ' AND title LIKE ? COLLATE NOCASE'; args.push(`%${q}%`); }
 
     const ORDER = {
       discount_desc: 'discount_percent DESC NULLS LAST, scraped_at DESC',
@@ -43,10 +44,11 @@ router.get('/', (req, res) => {
     // Total pour la pagination
     let countSql  = 'SELECT COUNT(*) as total FROM promos WHERE 1=1';
     const countArgs = [];
-    if (source)    { countSql += ' AND source = ?';    countArgs.push(source); }
-    if (category)  { countSql += ' AND category = ?';  countArgs.push(category); }
-    if (item_type) { countSql += ' AND item_type = ?'; countArgs.push(item_type); }
+    if (source)    { countSql += ' AND source = ?';                  countArgs.push(source); }
+    if (category)  { countSql += ' AND category = ?';                countArgs.push(category); }
+    if (item_type) { countSql += ' AND item_type = ?';               countArgs.push(item_type); }
     if (promo_only === '1') { countSql += ' AND discount_percent IS NOT NULL AND original_price IS NOT NULL'; }
+    if (q)         { countSql += ' AND title LIKE ? COLLATE NOCASE'; countArgs.push(`%${q}%`); }
     const { total } = db.prepare(countSql).get(...countArgs);
 
     res.json({ total, limit: parseInt(limit, 10), offset: parseInt(offset, 10), data: rows });

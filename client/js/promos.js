@@ -12,12 +12,14 @@ async function loadPromos() {
   const category  = document.getElementById('promoCategoryFilter').value;
   const sort      = document.getElementById('promoSortFilter').value;
   const promoOnly = document.getElementById('promoOnlyFilter').checked ? '1' : '';
+  const search    = document.getElementById('promoSearchInput').value.trim();
   const params    = new URLSearchParams({ limit: PROMO_LIMIT, offset: promoPage * PROMO_LIMIT });
   if (itemType)  params.set('item_type',  itemType);
   if (source)    params.set('source',     source);
   if (category)  params.set('category',   category);
   if (sort)      params.set('sort',       sort);
   if (promoOnly) params.set('promo_only', promoOnly);
+  if (search)    params.set('q',          search);
 
   try {
     const data = await API.get(`/promos?${params}`);
@@ -245,6 +247,12 @@ document.getElementById('promoSourceFilter').addEventListener('change',  resetAn
 document.getElementById('promoCategoryFilter').addEventListener('change', resetAndLoad);
 document.getElementById('promoSortFilter').addEventListener('change',     resetAndLoad);
 document.getElementById('promoOnlyFilter').addEventListener('change',     resetAndLoad);
+
+let _searchDebounce = null;
+document.getElementById('promoSearchInput').addEventListener('input', () => {
+  clearTimeout(_searchDebounce);
+  _searchDebounce = setTimeout(resetAndLoad, 300);
+});
 
 // Charger les sources disponibles dans le filtre
 async function loadPromoSources() {
