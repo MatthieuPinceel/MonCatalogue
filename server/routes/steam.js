@@ -169,21 +169,42 @@ async function fetchSteamLibrary() {
 async function fetchSteamWishlist() {
   if (!STEAM_ID) throw new Error('STEAM_ID manquant dans .env');
 
+  const loginSecure = process.env.STEAM_LOGIN_SECURE;
   const headers = {
-    'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    'Accept':          'application/json',
-    'Accept-Language': 'fr-FR,fr;q=0.9',
+    'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Accept':          'application/json, text/javascript, */*; q=0.01',
+    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
+    'Referer':         'https://store.steampowered.com/',
+    'Origin':          'https://store.steampowered.com',
+    'X-Requested-With': 'XMLHttpRequest',
+    ...(loginSecure ? { 'Cookie': `steamLoginSecure=${loginSecure}; birthtime=0; wants_mature_content=1` } : {})
   };
+  logger.info(`[Steam/Wishlist] STEAM_ID=${STEAM_ID} | cookie=${loginSecure ? 'oui' : 'non (profil public requis)'}`);
 
   // API JSON publique Steam — pagine par 100, ?p=0,1,2…
   const items = [];
   for (let page = 0; page < 20; page++) {
     const url = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/wishlistdata/?p=${page}`;
     logger.info(`[Steam/Wishlist] page ${page} — ${url}`);
-    const { data } = await http.get(url, { headers });
+    let data;
+    try {
+      const resp = await http.get(url, { headers });
+      data = resp.data;
+      logger.info(`[Steam/Wishlist] statut HTTP ${resp.status} — type: ${typeof data} — clés: ${Object.keys(data || {}).slice(0, 5).join(', ') || '(vide)'}`);
+    } catch (e) {
+      logger.error(`[Steam/Wishlist] erreur HTTP page ${page} : ${e.response?.status} ${e.message}`);
+      break;
+    }
 
-    if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
-      logger.info(`[Steam/Wishlist] page ${page} vide — fin de la wishlist`);
+    if (!data || Array.isArray(data) || typeof data !== 'object' || Object.keys(data).length === 0) {
+      logger.warn(`[Steam/Wishlist] page ${page} vide (type=${Array.isArray(data) ? 'array' : typeof data}) — fin`);
+      if (Array.isArray(data)) logger.warn('[Steam/Wishlist] Steam a renvoyé [] → wishlist privée ou STEAM_ID incorrect');
+      break;
+    }
+    // {"success": 2} = wishlist privée ; {"success": 25} = rate limit
+    if (data.success && Object.keys(data).length === 1) {
+      logger.warn(`[Steam/Wishlist] Steam a renvoyé {"success":${data.success}} → wishlist probablement privée`);
+      logger.warn('[Steam/Wishlist] → Rends la wishlist publique sur Steam OU ajoute STEAM_LOGIN_SECURE dans .env');
       break;
     }
 
