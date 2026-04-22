@@ -219,6 +219,87 @@ document.getElementById('clearAllPromosBtn').addEventListener('click', async () 
   }
 });
 
+// ── Scraping par source individuelle ─────────────────────────
+document.getElementById('scrapeBySourceBtn').addEventListener('click', async () => {
+  Modal.open('🎯 Scraping par source', '<p style="color:var(--text-muted)">Chargement des scrapers…</p>');
+  try {
+    const { promos, catalog } = await API.get('/promos/scrapers');
+    renderScraperModal(promos, catalog);
+  } catch (err) {
+    Modal.open('Erreur', `<p style="color:var(--danger)">${escHtml(err.message)}</p>`);
+  }
+});
+
+function renderScraperModal(promos, catalog) {
+  const checkboxList = (keys, prefix) => keys.map(k => `
+    <label style="display:flex;align-items:center;gap:.5rem;padding:.25rem 0;cursor:pointer;font-size:.88rem">
+      <input type="checkbox" class="scraper-cb" data-key="${escHtml(k)}" data-type="${prefix}" />
+      <span style="font-family:monospace;color:var(--accent)">${escHtml(k)}</span>
+    </label>`).join('');
+
+  const section = (title, keys, prefix, color) => `
+    <div style="margin-bottom:1.25rem">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem">
+        <strong style="color:${color}">${title} <span style="font-weight:400;color:var(--text-muted)">(${keys.length})</span></strong>
+        <div style="display:flex;gap:.5rem">
+          <button class="btn btn-secondary" style="font-size:.75rem;padding:.15rem .5rem"
+            onclick="toggleScrapers('${prefix}', true)">Tout</button>
+          <button class="btn btn-secondary" style="font-size:.75rem;padding:.15rem .5rem"
+            onclick="toggleScrapers('${prefix}', false)">Aucun</button>
+        </div>
+      </div>
+      <div style="max-height:180px;overflow-y:auto;padding:.25rem .5rem;background:var(--bg);border-radius:6px;border:1px solid var(--border)">
+        ${checkboxList(keys, prefix)}
+      </div>
+    </div>`;
+
+  Modal.open('🎯 Scraping par source', `
+    ${section('⚡ Promos', promos, 'promo', 'var(--accent)')}
+    ${section('📦 Catalogue', catalog, 'catalog', 'var(--text-muted)')}
+    <div style="display:flex;gap:.75rem;justify-content:flex-end;margin-top:.5rem">
+      <button class="btn btn-secondary" onclick="Modal.close()">Annuler</button>
+      <button class="btn btn-primary" id="launchSelectedBtn">⚡ Lancer la sélection</button>
+    </div>
+  `);
+
+  document.getElementById('launchSelectedBtn').addEventListener('click', launchSelectedScrapers);
+}
+
+function toggleScrapers(type, checked) {
+  document.querySelectorAll(`.scraper-cb[data-type="${type}"]`).forEach(cb => cb.checked = checked);
+}
+window.toggleScrapers = toggleScrapers;
+
+async function launchSelectedScrapers() {
+  const promoCbs   = [...document.querySelectorAll('.scraper-cb[data-type="promo"]:checked')].map(c => c.dataset.key);
+  const catalogCbs = [...document.querySelectorAll('.scraper-cb[data-type="catalog"]:checked')].map(c => c.dataset.key);
+
+  if (!promoCbs.length && !catalogCbs.length) {
+    toast('Sélectionne au moins une source.', 'error'); return;
+  }
+
+  const btn = document.getElementById('launchSelectedBtn');
+  btn.disabled = true; btn.textContent = '⏳ En cours…';
+
+  const results = [];
+  try {
+    if (promoCbs.length) {
+      const r = await API.post('/promos/scrape', { sources: promoCbs });
+      results.push(`Promos : ${r.saved} enregistrés`);
+    }
+    if (catalogCbs.length) {
+      const r = await API.post('/promos/scrape-catalog', { sources: catalogCbs });
+      results.push(`Catalogue : ${r.saved} enregistrés`);
+    }
+    Modal.close();
+    toast(results.join(' · '), 'success');
+    resetAndLoad();
+  } catch (err) {
+    toast(`Erreur : ${err.message}`, 'error');
+    btn.disabled = false; btn.textContent = '⚡ Lancer la sélection';
+  }
+}
+
 // ── Classifier avec IA ───────────────────────────────────────
 document.getElementById('classifyPromosBtn').addEventListener('click', async () => {
   if (!confirm('Lancer la classification IA des articles sans remise visible ?\nChaque appel utilise des crédits Anthropic (Haiku, ~0.01$ / 100 articles).')) return;

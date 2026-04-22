@@ -59,6 +59,18 @@ router.get('/', (req, res) => {
 });
 
 /**
+ * GET /api/promos/scrapers
+ * Liste les scrapers disponibles (clés de SCRAPERS et CATALOG_SCRAPERS).
+ */
+router.get('/scrapers', (req, res) => {
+  const { SCRAPERS, CATALOG_SCRAPERS } = require('../services/scraper');
+  res.json({
+    promos:   Object.keys(SCRAPERS),
+    catalog:  Object.keys(CATALOG_SCRAPERS),
+  });
+});
+
+/**
  * GET /api/promos/sources
  * Liste les sources disponibles et leur dernier scraping.
  */
