@@ -12,6 +12,14 @@ const STEAM_ID      = process.env.STEAM_ID;
 
 const http = axios.create({ timeout: 10000 });
 
+let _withPage = null;
+function getWithPage() {
+  if (_withPage) return _withPage;
+  try { _withPage = require('./chromium-steam').withPage; return _withPage; } catch {}
+  try { _withPage = require('../services/chromium').withPage; return _withPage; } catch {}
+  return null;
+}
+
 // ---------------------------------------------------------------
 // GET /api/steam/library
 // Retourne la bibliothèque Steam depuis la DB (fraîcheur < 6h) ou l'API.
@@ -168,80 +176,93 @@ async function fetchSteamLibrary() {
 
 async function fetchSteamWishlist() {
   if (!STEAM_ID) throw new Error('STEAM_ID manquant dans .env');
+  logger.info(`[Steam/Wishlist] STEAM_ID=${STEAM_ID} — chargement via Chromium`);
 
-  const loginSecure = process.env.STEAM_LOGIN_SECURE;
-  const headers = {
-    'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    'Accept':          'application/json, text/javascript, */*; q=0.01',
-    'Accept-Language': 'fr-FR,fr;q=0.9,en;q=0.8',
-    'Referer':         'https://store.steampowered.com/',
-    'Origin':          'https://store.steampowered.com',
-    'X-Requested-With': 'XMLHttpRequest',
-    ...(loginSecure ? { 'Cookie': `steamLoginSecure=${loginSecure}; birthtime=0; wants_mature_content=1` } : {})
-  };
-  logger.info(`[Steam/Wishlist] STEAM_ID=${STEAM_ID} | cookie=${loginSecure ? 'oui' : 'non (profil public requis)'}`);
+  const withPage = getWithPage();
+  if (!withPage) throw new Error('Chromium non disponible — puppeteer requis pour la wishlist Steam');
 
-  // API JSON publique Steam — pagine par 100, ?p=0,1,2…
-  const items = [];
-  for (let page = 0; page < 20; page++) {
-    const url = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/wishlistdata/?p=${page}`;
-    logger.info(`[Steam/Wishlist] page ${page} — ${url}`);
-    let data;
-    try {
-      const resp = await http.get(url, { headers, responseType: 'text' });
-      const raw  = resp.data;
-      logger.info(`[Steam/Wishlist] statut HTTP ${resp.status} — brut (80c) : ${String(raw).slice(0, 80)}`);
+  // Chromium intercepte la réponse XHR /wishlistdata/ comme un vrai navigateur
+  const allData = {};
+  await withPage(async (page) => {
+    // Intercepter toutes les réponses /wishlistdata/
+    page.on('response', async (response) => {
+      if (!response.url().includes('wishlistdata')) return;
       try {
-        data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      } catch (e) {
-        logger.error(`[Steam/Wishlist] parse JSON échoué : ${String(raw).slice(0, 200)}`);
-        break;
-      }
-      logger.info(`[Steam/Wishlist] parsé — type: ${Array.isArray(data) ? 'array' : typeof data} — ${Array.isArray(data) ? data.length + ' éléments' : Object.keys(data).length + ' clés'}`);
-    } catch (e) {
-      logger.error(`[Steam/Wishlist] erreur HTTP page ${page} : ${e.response?.status} ${e.message}`);
-      break;
-    }
+        const text = await response.text();
+        const json = JSON.parse(text);
+        if (json && typeof json === 'object' && !Array.isArray(json) && !json.success) {
+          Object.assign(allData, json);
+          logger.info(`[Steam/Wishlist] XHR intercepté — ${Object.keys(json).length} jeux`);
+        } else {
+          logger.warn(`[Steam/Wishlist] XHR vide ou erreur — ${text.slice(0, 100)}`);
+        }
+      } catch (e) { /* pas JSON, ignore */ }
+    });
 
-    if (!data || Array.isArray(data) || typeof data !== 'object' || Object.keys(data).length === 0) {
-      logger.warn(`[Steam/Wishlist] page ${page} vide (type=${Array.isArray(data) ? 'array' : typeof data}) — fin`);
-      if (Array.isArray(data)) logger.warn('[Steam/Wishlist] Steam a renvoyé [] → wishlist privée ou STEAM_ID incorrect');
-      break;
-    }
-    // {"success": 2} = wishlist privée ; {"success": 25} = rate limit
-    if (data.success && Object.keys(data).length === 1) {
-      logger.warn(`[Steam/Wishlist] Steam a renvoyé {"success":${data.success}} → wishlist probablement privée`);
-      logger.warn('[Steam/Wishlist] → Rends la wishlist publique sur Steam OU ajoute STEAM_LOGIN_SECURE dans .env');
-      break;
-    }
+    const wishUrl = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/`;
+    logger.info(`[Steam/Wishlist] Navigation vers ${wishUrl}`);
+    await page.goto(wishUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
-    for (const [appid, info] of Object.entries(data)) {
-      const subs     = info.subs || [];
-      const sub      = subs.find(s => s.discount_pct > 0) || subs[0] || {};
-      const price    = sub.price != null ? sub.price / 100 : null;
-      const discount = sub.discount_pct || 0;
-      const salePrice = price && discount ? Math.round(price * (1 - discount / 100) * 100) / 100 : price;
-      items.push({
-        appid:        parseInt(appid, 10),
-        name:         info.name || `App ${appid}`,
-        price,
-        sale_price:   salePrice,
-        discount,
-        release_date: info.release_string || null,
-        image_url:    `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
-        store_url:    `https://store.steampowered.com/app/${appid}`,
-        updated_at:   new Date().toISOString()
+    // Attendre que les items wishlist soient rendus
+    await page.waitForSelector(
+      '[class*="wishlist_row"], [data-appid], .wishlist_row_item',
+      { timeout: 20000 }
+    ).catch(() => logger.warn('[Steam/Wishlist] Sélecteur wishlist_row non trouvé'));
+
+    // Laisser finir les éventuels appels XHR de pagination
+    await new Promise(r => setTimeout(r, 3000));
+
+    // Tentative d'extraction depuis le JS de la page si XHR non intercepté
+    if (!Object.keys(allData).length) {
+      logger.info('[Steam/Wishlist] XHR non intercepté, extraction JS...');
+      const jsData = await page.evaluate(() => {
+        // Steam stocke les données dans window.g_Wishlist ou variable similaire
+        if (window.g_Wishlist?.rgAllApps) return window.g_Wishlist.rgAllApps;
+        if (window.g_rgWishlistData)       return window.g_rgWishlistData;
+        // Fallback : extraire depuis le DOM
+        const items = {};
+        document.querySelectorAll('[data-appid]').forEach(el => {
+          const id = el.dataset.appid;
+          if (!id || items[id]) return;
+          const name = el.querySelector('[class*="title"], h4, h3')?.textContent?.trim() || '';
+          items[id] = { name };
+        });
+        return items;
       });
+      if (jsData && typeof jsData === 'object') {
+        Object.assign(allData, Array.isArray(jsData)
+          ? Object.fromEntries(jsData.map(i => [i.appid, i]))
+          : jsData
+        );
+        logger.info(`[Steam/Wishlist] JS extrait — ${Object.keys(allData).length} jeux`);
+      }
     }
+  });
 
-    logger.info(`[Steam/Wishlist] page ${page} — ${Object.keys(data).length} jeux`);
-    if (Object.keys(data).length < 100) break; // dernière page
+  logger.info(`[Steam/Wishlist] Total brut : ${Object.keys(allData).length} jeux`);
+
+  const items = [];
+  for (const [appid, info] of Object.entries(allData)) {
+    const subs      = info.subs || [];
+    const sub       = subs.find(s => s.discount_pct > 0) || subs[0] || {};
+    const price     = sub.price != null ? sub.price / 100 : null;
+    const discount  = sub.discount_pct || 0;
+    const salePrice = price && discount ? Math.round(price * (1 - discount / 100) * 100) / 100 : price;
+    items.push({
+      appid:        parseInt(appid, 10),
+      name:         info.name || `App ${appid}`,
+      price,
+      sale_price:   salePrice,
+      discount,
+      release_date: info.release_string || null,
+      image_url:    `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+      store_url:    `https://store.steampowered.com/app/${appid}`,
+      updated_at:   new Date().toISOString()
+    });
   }
 
-  logger.info(`[Steam/Wishlist] Total : ${items.length} jeux`);
-
   if (!items.length) {
-    logger.warn('[Steam/Wishlist] Aucun jeu — profil privé ou STEAM_ID incorrect ?');
+    logger.warn('[Steam/Wishlist] Aucun jeu — wishlist vide ou profil privé ?');
     return [];
   }
 
