@@ -63,9 +63,46 @@ function calcDiscount(original, sale) {
 }
 
 // ---------------------------------------------------------------
-// Stubs
+// FURET DU NORD — HTML SSR, axios + cheerio
 // ---------------------------------------------------------------
-async function scrapeFuretDuNord() { logger.info(`[Scraper] furetdunord — ignoré (403)`); return []; }
+async function scrapeFuretDuNordPage(url, category, itemType = 'catalog') {
+  const source   = 'furetdunord';
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Scraper] ${source} (${itemType}) — ${url}`);
+  try {
+    await sleep(DELAY);
+    const { data } = await makeHttp('https://www.furet.com/').get(url);
+    const $        = cheerio.load(data);
+    const results  = [];
+
+    $('[class*="product-item"], [class*="product-card"], [class*="product-tile"], [class*="product_"], li.ajax_block_product, .product').each((i, el) => {
+      const title = $(el).find('[class*="product-name"], [class*="product-title"], h2, h3, .title, .name').first().text().trim()
+                 || $(el).find('a[title]').first().attr('title') || '';
+      if (!title || title.length < 3) return;
+      const priceOld = normalizePrice($(el).find('[class*="old-price"], [class*="price-old"], s, del, .crossed').first().text(), maxPrice);
+      const priceNew = normalizePrice($(el).find('[class*="sale"], [class*="promo"], [class*="special"], [class*="new-price"]').first().text()
+                    || $(el).find('[class*="price"]').first().text(), maxPrice);
+      const price = priceNew || priceOld;
+      if (!price) return;
+      const href = $(el).find('a').first().attr('href') || '';
+      results.push({
+        source, title, price,
+        original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
+        discount_percent: calcDiscount(priceOld, priceNew),
+        url:       href.startsWith('http') ? href : `https://www.furet.com${href}`,
+        image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
+        category:  guessCategoryFromTitle(title) || category,
+        item_type: itemType,
+        scraped_at: new Date().toISOString()
+      });
+    });
+    logger.info(`[Scraper] ${source} (${itemType}) — ${results.length} articles`);
+    return results;
+  } catch (err) {
+    logger.error(`[Scraper] ${source} erreur : ${err.message}`);
+    return [];
+  }
+}
 
 // ---------------------------------------------------------------
 // FNAC — Chromium (anti-bot contourné)
@@ -593,7 +630,20 @@ async function scrapeSmythsPage(url, category, itemType = 'promo') {
   }
 }
 
-async function scrapeSmyths() { return []; } // Pas de page promo dédiée confirmée
+async function scrapeSmythsPaginated(baseUrl, category, itemType = 'promo', maxPages = 3) {
+  const all = [];
+  const sz  = 60;
+  for (let p = 0; p < maxPages; p++) {
+    const sep  = baseUrl.includes('?') ? '&' : '?';
+    const url  = p === 0 ? baseUrl : `${baseUrl}${sep}start=${p * sz}&sz=${sz}`;
+    const items = await scrapeSmythsPage(url, category, itemType);
+    all.push(...items);
+    if (items.length < 5) break;
+    await sleep(DELAY);
+  }
+  logger.info(`[Scraper/Smyths] (${itemType}) — ${all.length} articles`);
+  return all;
+}
 
 // ---------------------------------------------------------------
 // PHILIBERT — fonction partagée promo + catalogue
@@ -706,28 +756,37 @@ function guessCategoryFromTitle(title) {
 // Scrapers de promos
 // ---------------------------------------------------------------
 const SCRAPERS = {
-  // Sites axios — pages promos dédiées
+  // King Jouet — pages promos
   kingjouet:              scrapeKingJouet,
   'kingjouet-promo-lego': () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/promotions/marque-lego/page1.htm', 'Lego', 'promo'),
   'kingjouet-promo-js':   () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/jeux-de-societe-promotion/page1.htm', 'JeuxSociete', 'promo'),
+  // Micromania
   micromania:             scrapeMicromania,
-  smyths:                 scrapeSmyths,
-  furetdunord:            scrapeFuretDuNord,
+  // Smyths — pages promos confirmées
+  'smyths-promo':         () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/mega-promos/c/mega-promos',                    null,          'promo'),
+  'smyths-soldes':        () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/soldes/c/soldes',                               null,          'promo'),
+  'smyths-lego-promo':    () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/lego/promotions-lego/c/promotions-lego',        'Lego',        'promo'),
+  // Furet du Nord — HTML SSR, axios
+  'furetdunord-pokemon':  () => scrapeFuretDuNordPage('https://www.furet.com/jeux/cartes-a-collectionner-et-licences/pokemon.html',               'TCG',         'catalog'),
+  'furetdunord-tcg':      () => scrapeFuretDuNordPage('https://www.furet.com/jeux/cartes-a-collectionner-et-licences.html',                       'TCG',         'catalog'),
+  'furetdunord-jeux':     () => scrapeFuretDuNordPage('https://www.furet.com/jeux/jeux-famille-et-adultes/jeux-de-cartes.html',                   'JeuxSociete', 'catalog'),
+  // Philibert — promos + occasions
   philibert:              scrapePhilibert,
   'philibert-occasions':  () => scrapePhilibertPage('https://www.philibertnet.com/fr/214-occasions', null, 'promo'),
+  // Cultura
   cultura:                scrapeCultura,
   'cultura-promo-jv':     () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/promotions-jeux-video.html', 'JeuxVideo', 'promo'),
-  // Dealabs RSS — XML public, fiable
+  // Dealabs RSS — XML public, fiable, remplace Google Shopping
   'dealabs-pokemon':      () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/pokemon',     'TCG'),
   'dealabs-lego':         () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/lego',        'Lego'),
   'dealabs-jv':           () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/jeux-video',  'JeuxVideo'),
   'dealabs-jouets':       () => scrapeDealabsRSS('https://www.dealabs.com/rss/groupes/jeux-jouets', null),
   // BCD Jeux — Chromium (WAF)
   'bcd-jeux':             scrapeBcdJeux,
-  // Chromium — sites anti-bot
+  // Fnac — Chromium
   fnac:                   scrapeFnac,
-  'fnac-pokemon':         () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4',  'TCG',  'promo'),
-  'fnac-lorcana':         () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4',  'TCG',  'promo'),
+  'fnac-pokemon':         () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4', 'TCG', 'promo'),
+  'fnac-lorcana':         () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4', 'TCG', 'promo'),
 };
 
 // ---------------------------------------------------------------
@@ -735,50 +794,51 @@ const SCRAPERS = {
 // ---------------------------------------------------------------
 // URLs vérifiées manuellement — à mettre à jour si une page disparaît
 const CATALOG_SCRAPERS = {
-  // Cultura — TCG
-  'cultura-pokemon': () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-pokemon.html', 'TCG',  'catalog'),
-  'cultura-lorcana': () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-lorcana.html', 'TCG',  'catalog'),
-  'cultura-magic':   () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-magic.html',   'TCG',  'catalog'),
+  // Cultura — TCG (URLs confirmées)
+  'cultura-pokemon':     () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-pokemon.html', 'TCG', 'catalog'),
+  'cultura-lorcana':     () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-lorcana.html', 'TCG', 'catalog'),
+  'cultura-lorcana-alt': () => scrapeCulturaPage('https://www.cultura.com/c/jeux-de-carte-disney-lorcana',                         'TCG', 'catalog'),
+  'cultura-magic':       () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-magic.html',   'TCG', 'catalog'),
   // Cultura — Lego & JV
-  'cultura-lego':    () => scrapeCulturaPage('https://www.cultura.com/univers-enfant/jeux-jouets/jeux-de-construction/lego/tous-les-produits-lego.html', 'Lego', 'catalog'),
-  'cultura-jv':      () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles.html', 'JeuxVideo', 'catalog'),
-  // Philibert — TCG
-  'philibert-pokemon': () => scrapePhilibertPage('https://www.philibertnet.com/fr/212-pokemon',        'TCG',        'catalog'),
-  'philibert-lorcana': () => scrapePhilibertPage('https://www.philibertnet.com/fr/15880-lorcana',      'TCG',        'catalog'),
-  'philibert-tcg':     () => scrapePhilibertPage('https://www.philibertnet.com/fr/119-jeux-de-cartes', 'TCG',        'catalog'),
-  'philibert-js':      () => scrapePhilibertPage('https://www.philibertnet.com/fr/50-jeux-de-societe', 'JeuxSociete','catalog'),
-  // King Jouet — catalogue
-  'kingjouet-pokemon': () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/Pokemon/page1.htm',                                                  'TCG',  'catalog'),
-  'kingjouet-tcg':     () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/jeux-societes/cartes-a-collectionner/page1.htm',                     'TCG',  'catalog'),
-  'kingjouet-lego':    () => scrapeKingJouetPage('https://www.king-jouet.com/pages/lego_univers/lego.htm', 'Lego', 'catalog'),
+  'cultura-lego':        () => scrapeCulturaPage('https://www.cultura.com/univers-enfant/jeux-jouets/jeux-de-construction/lego/tous-les-produits-lego.html', 'Lego', 'catalog'),
+  'cultura-jv':          () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles.html', 'JeuxVideo', 'catalog'),
+  // Philibert — slugs PrestaShop stables
+  'philibert-pokemon':   () => scrapePhilibertPage('https://www.philibertnet.com/fr/212-pokemon',        'TCG',        'catalog'),
+  'philibert-lorcana':   () => scrapePhilibertPage('https://www.philibertnet.com/fr/15880-lorcana',      'TCG',        'catalog'),
+  'philibert-tcg':       () => scrapePhilibertPage('https://www.philibertnet.com/fr/119-jeux-de-cartes', 'TCG',        'catalog'),
+  'philibert-js':        () => scrapePhilibertPage('https://www.philibertnet.com/fr/50-jeux-de-societe', 'JeuxSociete','catalog'),
+  // King Jouet — catalogue (kingjouet-lego URL corrigée)
+  'kingjouet-pokemon':   () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/Pokemon/page1.htm',                             'TCG',  'catalog'),
+  'kingjouet-tcg':       () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/jeux-societes/cartes-a-collectionner/page1.htm', 'TCG',  'catalog'),
+  'kingjouet-lego':      () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/marque-lego/page1.htm',                          'Lego', 'catalog'),
   // Micromania — catalogue TCG
-  'micromania-pokemon': () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes?marque=pokemon',  'TCG', 'catalog'),
-  'micromania-lorcana': () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes?marque=lorcana',  'TCG', 'catalog'),
-  // Smyths — catalogue TCG
-  'smyths-tcg':        () => scrapeSmythsPage('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/cartes-a-collectionner/c/SM13010611', 'TCG', 'catalog'),
-  'smyths-pokemon':    () => scrapeSmythsPage('https://www.smythstoys.com/fr/fr-fr/marques/pokemon/c/SM130208', 'TCG', 'catalog'),
-  'smyths-lorcana':    () => scrapeSmythsPage('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/cartes-a-collectionner/cartes-lorcana/c/SM1301061105', 'TCG', 'catalog'),
+  'micromania-pokemon':  () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes?marque=pokemon', 'TCG', 'catalog'),
+  'micromania-lorcana':  () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes?marque=lorcana', 'TCG', 'catalog'),
+  // Smyths — catalogue (IDs SM stables, + jds nouveau)
+  'smyths-jds':          () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/c/SM130106',            'JeuxSociete', 'catalog'),
+  'smyths-tcg':          () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/cartes-a-collectionner/c/SM13010611', 'TCG', 'catalog'),
+  'smyths-pokemon':      () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/marques/pokemon/c/SM130208',                              'TCG',         'catalog'),
+  'smyths-lorcana':      () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/cartes-a-collectionner/cartes-lorcana/c/SM1301061105', 'TCG', 'catalog'),
+  // Furet du Nord — HTML SSR
+  'furetdunord-pokemon': () => scrapeFuretDuNordPage('https://www.furet.com/jeux/cartes-a-collectionner-et-licences/pokemon.html',    'TCG',         'catalog'),
+  'furetdunord-tcg':     () => scrapeFuretDuNordPage('https://www.furet.com/jeux/cartes-a-collectionner-et-licences.html',            'TCG',         'catalog'),
+  'furetdunord-jeux':    () => scrapeFuretDuNordPage('https://www.furet.com/jeux/jeux-famille-et-adultes/jeux-de-cartes.html',        'JeuxSociete', 'catalog'),
   // Fnac — catalogue Chromium
-  'fnac-pokemon-cat':  () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4',  'TCG', 'catalog'),
-  'fnac-lorcana-cat':  () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4',  'TCG', 'catalog'),
-  'fnac-lego-cat':     () => scrapeFnacPage('https://www.fnac.com/Lego/n-2218/w-4',              'Lego','catalog'),
+  'fnac-pokemon-cat':    () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4', 'TCG',  'catalog'),
+  'fnac-lorcana-cat':    () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4', 'TCG',  'catalog'),
+  'fnac-lego-cat':       () => scrapeFnacPage('https://www.fnac.com/Lego/n-2218/w-4',             'Lego', 'catalog'),
   // Amazon — catalogue Chromium
-  'amazon-pokemon':    () => scrapeAmazonPage('https://www.amazon.fr/s?k=cartes+pokemon&rh=n%3A322085011', 'TCG',  'catalog'),
-  'amazon-lorcana':    () => scrapeAmazonPage('https://www.amazon.fr/s?k=cartes+lorcana',                  'TCG',  'catalog'),
-  'amazon-lego':       () => scrapeAmazonPage('https://www.amazon.fr/s?k=lego&rh=n%3A322083011',           'Lego', 'catalog'),
-  // Google Shopping — comparateur Chromium
-  'google-pokemon':    () => scrapeGoogleShoppingPage('cartes pokemon booster',    'TCG',        'catalog'),
-  'google-lorcana':    () => scrapeGoogleShoppingPage('cartes lorcana booster',    'TCG',        'catalog'),
-  'google-lego':       () => scrapeGoogleShoppingPage('lego pokemon sets',         'Lego',       'catalog'),
-  'google-jv':         () => scrapeGoogleShoppingPage('jeux video promotions ps5', 'JeuxVideo',  'catalog'),
-  // Idealo — comparateur de prix français, Chromium
-  'idealo-pokemon':    () => scrapeIdealoPage('https://www.idealo.fr/cat/20338/cartes-pokemon.html',        'TCG',  'catalog'),
-  'idealo-lego':       () => scrapeIdealoPage('https://www.idealo.fr/cat/1484/lego.html',                   'Lego', 'catalog'),
-  // BCD Jeux — TCG & Jeux société, Chromium
-  'bcd-pokemon':       () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/pokemon', 'TCG', 'catalog'),
-  'bcd-lorcana':       () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/lorcana', 'TCG', 'catalog'),
-  'bcd-magic':         () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/magic-the-gathering', 'TCG', 'catalog'),
-  'bcd-jeux-societe':  () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/jeux-de-societe', 'JeuxSociete', 'catalog'),
+  'amazon-pokemon':      () => scrapeAmazonPage('https://www.amazon.fr/s?k=cartes+pokemon&rh=n%3A322085011', 'TCG',  'catalog'),
+  'amazon-lorcana':      () => scrapeAmazonPage('https://www.amazon.fr/s?k=cartes+lorcana',                  'TCG',  'catalog'),
+  'amazon-lego':         () => scrapeAmazonPage('https://www.amazon.fr/s?k=lego&rh=n%3A322083011',           'Lego', 'catalog'),
+  // Idealo — comparateur, Chromium (IDs catégorie stables)
+  'idealo-pokemon':      () => scrapeIdealoPage('https://www.idealo.fr/cat/20338/cartes-pokemon.html', 'TCG',  'catalog'),
+  'idealo-lego':         () => scrapeIdealoPage('https://www.idealo.fr/cat/1484/lego.html',             'Lego', 'catalog'),
+  // BCD Jeux — Chromium
+  'bcd-pokemon':         () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/pokemon',              'TCG',        'catalog'),
+  'bcd-lorcana':         () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/lorcana',              'TCG',        'catalog'),
+  'bcd-magic':           () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/magic-the-gathering',  'TCG',        'catalog'),
+  'bcd-jeux-societe':    () => scrapeBcdJeuxPaginated('https://www.bcd-jeux.fr/fr/jeux-de-societe',      'JeuxSociete','catalog'),
 };
 
 async function scrapeAll(only) {
