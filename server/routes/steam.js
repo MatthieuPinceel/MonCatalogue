@@ -204,6 +204,14 @@ async function fetchSteamWishlist() {
     await page.goto(wishUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
     // Attendre que les items wishlist soient rendus
+    // Diagnostic : voir sur quelle page on est vraiment
+    const finalUrl   = page.url();
+    const pageTitle  = await page.title();
+    const bodySnap   = await page.evaluate(() => document.body?.innerText?.slice(0, 400).replace(/\s+/g, ' ') || '');
+    logger.info(`[Steam/Wishlist] URL finale : ${finalUrl}`);
+    logger.info(`[Steam/Wishlist] Titre page : ${pageTitle}`);
+    logger.info(`[Steam/Wishlist] Contenu body (400c) : ${bodySnap}`);
+
     await page.waitForSelector(
       '[class*="wishlist_row"], [data-appid], .wishlist_row_item',
       { timeout: 20000 }
