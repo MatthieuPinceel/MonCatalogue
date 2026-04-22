@@ -63,43 +63,71 @@ function calcDiscount(original, sale) {
 }
 
 // ---------------------------------------------------------------
-// FURET DU NORD — HTML SSR, axios + cheerio
+// FURET DU NORD — Chromium (PrestaShop, anti-bot possible)
 // ---------------------------------------------------------------
 async function scrapeFuretDuNordPage(url, category, itemType = 'catalog') {
-  const source   = 'furetdunord';
   const maxPrice = itemType === 'catalog' ? 1500 : 500;
-  logger.info(`[Scraper] ${source} (${itemType}) — ${url}`);
+  logger.info(`[Chromium/FuretDuNord] (${itemType}) — ${url}`);
   try {
-    await sleep(DELAY);
-    const { data } = await makeHttp('https://www.furet.com/').get(url);
-    const $        = cheerio.load(data);
-    const results  = [];
+    return await withChromiumPage(async (page) => {
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+      await page.waitForSelector(
+        '[data-id-product], article.product-miniature, .js-product-miniature, li.ajax_block_product',
+        { timeout: 15000 }
+      ).catch(() => {});
+      await new Promise(r => setTimeout(r, 2000));
 
-    $('[class*="product-item"], [class*="product-card"], [class*="product-tile"], [class*="product_"], li.ajax_block_product, .product').each((i, el) => {
-      const title = $(el).find('[class*="product-name"], [class*="product-title"], h2, h3, .title, .name').first().text().trim()
-                 || $(el).find('a[title]').first().attr('title') || '';
-      if (!title || title.length < 3) return;
-      const priceOld = normalizePrice($(el).find('[class*="old-price"], [class*="price-old"], s, del, .crossed').first().text(), maxPrice);
-      const priceNew = normalizePrice($(el).find('[class*="sale"], [class*="promo"], [class*="special"], [class*="new-price"]').first().text()
-                    || $(el).find('[class*="price"]').first().text(), maxPrice);
-      const price = priceNew || priceOld;
-      if (!price) return;
-      const href = $(el).find('a').first().attr('href') || '';
-      results.push({
-        source, title, price,
-        original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
-        discount_percent: calcDiscount(priceOld, priceNew),
-        url:       href.startsWith('http') ? href : `https://www.furet.com${href}`,
-        image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
-        category:  guessCategoryFromTitle(title) || category,
-        item_type: itemType,
-        scraped_at: new Date().toISOString()
+      const dbg = await page.evaluate(() =>
+        ['[data-id-product]','article.product-miniature','.js-product-miniature',
+         'li.ajax_block_product','.product-miniature','[class*="product-item"]',
+         '.products article','.product']
+          .map(s => `${s}:${document.querySelectorAll(s).length}`).join(' | ')
+      );
+      logger.info(`[Chromium/FuretDuNord] sélecteurs debug → ${dbg}`);
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        const cards = document.querySelectorAll(
+          '[data-id-product], article.product-miniature, .js-product-miniature, li.ajax_block_product'
+        );
+        cards.forEach(el => {
+          const titleEl = el.querySelector('.product-title a, .product-name a, h2 a, h3 a, [class*="product-title"] a, [class*="name"] a');
+          const title   = titleEl?.textContent?.trim() || el.querySelector('a[title]')?.title || '';
+          if (!title || title.length < 3) return;
+          const priceNew = (el.querySelector('.price:not(.regular-price), .product-price, [itemprop="price"]')?.textContent?.trim()
+                        || el.querySelector('[class*="price"]')?.textContent?.trim() || '');
+          const priceOld = el.querySelector('.regular-price, s, del, [class*="old-price"]')?.textContent?.trim() || '';
+          const imgEl  = el.querySelector('img');
+          const linkEl = titleEl || el.querySelector('a');
+          results.push({
+            title, priceNew, priceOld,
+            img:  imgEl?.src || imgEl?.dataset?.src || '',
+            href: linkEl?.href || '',
+          });
+        });
+        return results;
       });
+
+      logger.info(`[Chromium/FuretDuNord] ${items.length} produit(s) trouvé(s)`);
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const priceNew = normalizePrice(item.priceNew, maxPrice);
+        const priceOld = normalizePrice(item.priceOld, maxPrice);
+        const price    = priceNew || priceOld;
+        if (!price) return null;
+        return {
+          source: 'furetdunord', title: item.title, price,
+          original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
+          discount_percent: calcDiscount(priceOld, priceNew),
+          url:       item.href || url,
+          image_url: item.img || null,
+          category:  guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
     });
-    logger.info(`[Scraper] ${source} (${itemType}) — ${results.length} articles`);
-    return results;
   } catch (err) {
-    logger.error(`[Scraper] ${source} erreur : ${err.message}`);
+    logger.error(`[Chromium/FuretDuNord] erreur : ${err.message}`);
     return [];
   }
 }
@@ -328,24 +356,37 @@ function extractPricesFromText(text) {
   return { price: Math.min(...matches), original_price: Math.max(...matches) };
 }
 
+// Dealabs a supprimé les RSS /groupes/ — on filtre le flux principal par mots-clés
+const DEALABS_RSS = 'https://www.dealabs.com/rss/discussions';
+const DEALABS_KEYWORDS = {
+  TCG:         /pokemon|lorcana|magic.the.gathering|one.piece.card|jcc|booster|carte.?a.?collectionner/i,
+  Lego:        /lego|technic|duplo/i,
+  JeuxVideo:   /playstation|xbox|nintendo|switch|ps[45]|jeu.vid|steam|epic.games/i,
+  JeuxSociete: /jeu.de.soci|jeu.soci|plateau|extension|figurine|deck.building/i,
+};
+
 async function scrapeDealabsRSS(feedUrl, category) {
-  logger.info(`[Scraper] dealabs RSS — ${feedUrl}`);
+  logger.info(`[Scraper] dealabs RSS — ${DEALABS_RSS} (filtre: ${category || 'tous'})`);
   try {
     await sleep(DELAY);
-    const { data } = await makeHttp('https://www.dealabs.com/').get(feedUrl);
+    const { data } = await makeHttp('https://www.dealabs.com/').get(DEALABS_RSS);
     const $       = cheerio.load(data, { xmlMode: true });
     const results = [];
     const now     = new Date().toISOString();
+    const pattern = category ? DEALABS_KEYWORDS[category] : null;
 
     $('item').each((i, el) => {
       const title   = $(el).find('title').text().trim();
       const url     = $(el).find('link').text().trim() || $(el).find('guid').text().trim();
       const pubDate = $(el).find('pubDate').text().trim();
       if (!title || !url) return;
+      // Filtre par catégorie si demandé
+      if (pattern && !pattern.test(title)) return;
 
       const { price, original_price } = extractPricesFromText(title);
       if (!price) return;
 
+      const detectedCat = category || Object.entries(DEALABS_KEYWORDS).find(([, p]) => p.test(title))?.[0] || null;
       results.push({
         source:           'dealabs',
         title,
@@ -354,13 +395,13 @@ async function scrapeDealabsRSS(feedUrl, category) {
         discount_percent: calcDiscount(original_price, price),
         url,
         image_url:        null,
-        category,
+        category:         detectedCat,
         item_type:        'promo',
         scraped_at:       pubDate ? new Date(pubDate).toISOString() : now
       });
     });
 
-    logger.info(`[Scraper] dealabs (${category}) — ${results.length} deals`);
+    logger.info(`[Scraper] dealabs (${category || 'tous'}) — ${results.length} deals`);
     return results;
   } catch (err) {
     logger.error(`[Scraper] dealabs erreur : ${err.message}`);
@@ -607,40 +648,70 @@ async function scrapeMicromania() {
 }
 
 // ---------------------------------------------------------------
-// SMYTHS — HTML serveur propre
+// SMYTHS — Chromium (axios bloqué par anti-bot Hybris)
 // ---------------------------------------------------------------
 async function scrapeSmythsPage(url, category, itemType = 'promo') {
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/Smyths] (${itemType}) — ${url}`);
   try {
-    await sleep(DELAY);
-    const { data } = await makeHttp('https://www.smythstoys.com/fr/').get(url);
-    const $        = cheerio.load(data);
-    const results  = [];
-    const maxPrice = itemType === 'catalog' ? 1500 : 500;
+    return await withChromiumPage(async (page) => {
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+      await page.waitForSelector(
+        '[class*="product-item"], [class*="productItem"], [class*="product-tile"], [class*="product-card"]',
+        { timeout: 15000 }
+      ).catch(() => {});
+      await new Promise(r => setTimeout(r, 1500));
 
-    $('[class*="product-item"], [class*="productItem"], [class*="product-tile"]').each((i, el) => {
-      const title = $(el).find('[class*="product-name"], [class*="productName"], h2, h3').first().text().trim()
-                 || $(el).find('a[title]').first().attr('title') || '';
-      if (!title || title.length < 3) return;
-      const priceOld = normalizePrice($(el).find('[class*="was-price"], [class*="old-price"], s').first().text(), maxPrice);
-      const priceNew = normalizePrice($(el).find('[class*="now-price"], [class*="sale-price"], [class*="current-price"]').first().text()
-                    || $(el).find('[class*="price"]').first().text(), maxPrice);
-      const price    = priceNew || priceOld;
-      if (!price) return;
-      const href = $(el).find('a').first().attr('href') || '';
-      results.push({
-        source: 'smyths', title, price,
-        original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
-        discount_percent: calcDiscount(priceOld, priceNew),
-        url:       href.startsWith('http') ? href : `https://www.smythstoys.com${href}`,
-        image_url: $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-lazy') || null,
-        category:  guessCategoryFromTitle(title) || category,
-        item_type: itemType,
-        scraped_at: new Date().toISOString()
+      const dbg = await page.evaluate(() =>
+        ['[class*="product-item"]','[class*="productItem"]','[class*="product-tile"]',
+         '[class*="product-card"]','[data-product-code]','[data-productcode]','.product']
+          .map(s => `${s}:${document.querySelectorAll(s).length}`).join(' | ')
+      );
+      logger.info(`[Chromium/Smyths] sélecteurs debug → ${dbg}`);
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        const cards = document.querySelectorAll(
+          '[class*="product-item"], [class*="productItem"], [class*="product-tile"], [class*="product-card"]'
+        );
+        cards.forEach(el => {
+          const title = el.querySelector('[class*="product-name"], [class*="productName"], h2, h3')?.textContent?.trim()
+                     || el.querySelector('a[title]')?.title || '';
+          if (!title || title.length < 3) return;
+          const priceOld = el.querySelector('[class*="was-price"], [class*="old-price"], s')?.textContent?.trim() || '';
+          const priceNew = (el.querySelector('[class*="now-price"], [class*="sale-price"], [class*="current-price"]')?.textContent?.trim()
+                        || el.querySelector('[class*="price"]')?.textContent?.trim() || '');
+          const imgEl  = el.querySelector('img');
+          const linkEl = el.querySelector('a');
+          results.push({
+            title, priceNew, priceOld,
+            img:  imgEl?.src || imgEl?.dataset?.src || '',
+            href: linkEl?.href || '',
+          });
+        });
+        return results;
       });
+
+      logger.info(`[Chromium/Smyths] ${items.length} produit(s) trouvé(s)`);
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const priceNew = normalizePrice(item.priceNew, maxPrice);
+        const priceOld = normalizePrice(item.priceOld, maxPrice);
+        const price    = priceNew || priceOld;
+        if (!price) return null;
+        return {
+          source: 'smyths', title: item.title, price,
+          original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
+          discount_percent: calcDiscount(priceOld, priceNew),
+          url:       item.href || url,
+          image_url: item.img || null,
+          category:  guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
     });
-    return results;
   } catch (err) {
-    logger.error(`[Scraper] smyths erreur sur ${url} : ${err.message}`);
+    logger.error(`[Chromium/Smyths] erreur sur ${url} : ${err.message}`);
     return [];
   }
 }
