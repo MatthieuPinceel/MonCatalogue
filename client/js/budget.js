@@ -7,7 +7,7 @@ let chartHistory = null;
 
 function initBudgetMonth() {
   const input = document.getElementById('budgetMonth');
-  input.value = new Date().toISOString().slice(0, 7);
+  if (!input.value) input.value = new Date().toISOString().slice(0, 7);
 }
 
 async function loadBudget() {
@@ -19,7 +19,7 @@ async function loadBudget() {
     ]);
     renderBudgetGrid(summary.summary || []);
     renderPurchasesTable(purchases.data || []);
-    renderBudgetHistoryChart(summary.history || []);
+    renderBudgetHistoryChart(summary.history || [], month);
   } catch (err) {
     toast(`Erreur budget : ${err.message}`, 'error');
   }
@@ -86,33 +86,49 @@ function renderPurchasesTable(purchases) {
   `).join('');
 }
 
-function renderBudgetHistoryChart(history) {
+function renderBudgetHistoryChart(history, selectedMonth) {
   const ctx = document.getElementById('chartBudgetHistory').getContext('2d');
   const months = [...new Set(history.map(r => r.month))].sort();
   const cats   = [...new Set(history.map(r => r.category))];
-  const colors = { TCG_Pokemon:'#6366f1', TCG_Lorcana:'#a855f7', Lego:'#f59e0b', JeuxVideo:'#22c55e', JeuxSociete:'#3b82f6' };
+  const COLORS = { TCG_Pokemon:'#6366f1', TCG_Lorcana:'#a855f7', Lego:'#f59e0b', JeuxVideo:'#22c55e', JeuxSociete:'#3b82f6' };
 
-  const datasets = cats.map(cat => ({
-    label: cat.replace('TCG_','TCG '),
-    data: months.map(m => history.find(r => r.month === m && r.category === cat)?.spent || 0),
-    backgroundColor: colors[cat] || '#64748b',
-    borderRadius: 4,
-    stack: 'total'
-  }));
+  // Include selected month even if it has no expenses
+  const allMonths = months.includes(selectedMonth) ? months : [...months, selectedMonth].sort();
+
+  const datasets = cats.map(cat => {
+    const base = COLORS[cat] || '#64748b';
+    return {
+      label: cat.replace('TCG_', 'TCG '),
+      data: allMonths.map(m => history.find(r => r.month === m && r.category === cat)?.spent || 0),
+      backgroundColor: allMonths.map(m => m === selectedMonth ? base : base + '55'),
+      borderRadius: 4,
+      stack: 'total'
+    };
+  });
 
   if (chartHistory) chartHistory.destroy();
   chartHistory = new Chart(ctx, {
     type: 'bar',
-    data: { labels: months, datasets },
+    data: { labels: allMonths, datasets },
     options: {
       responsive: true,
       scales: {
-        x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(255,255,255,.05)' } },
+        x: {
+          ticks: { color: ctx => allMonths[ctx.index] === selectedMonth ? '#e2e8f0' : '#64748b' },
+          grid: { color: 'rgba(255,255,255,.05)' }
+        },
         y: { stacked: true, ticks: { color: '#64748b', callback: v => v+'€' }, grid: { color: 'rgba(255,255,255,.05)' } }
       },
-      plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 12 } } } }
+      plugins: {
+        legend: { labels: { color: '#e2e8f0', font: { size: 12 } } },
+        tooltip: { callbacks: { title: ([item]) => item.label === selectedMonth ? `${item.label} ◀ sélectionné` : item.label } }
+      }
     }
   });
+
+  // Mettre à jour le sous-titre
+  const subtitle = document.getElementById('chartBudgetSubtitle');
+  if (subtitle) subtitle.textContent = `Historique 12 mois — barre en surbrillance = ${selectedMonth}`;
 }
 
 // ── Ajouter un achat ──────────────────────────────────────────
@@ -173,7 +189,7 @@ document.getElementById('addPurchaseBtn').addEventListener('click', () => {
     } catch (err) {
       toast(`Erreur : ${err.message}`, 'error');
     }
-  });
+  }, { once: true });
 });
 
 async function deletePurchase(id) {
@@ -254,7 +270,7 @@ document.getElementById('editLimitsBtn').addEventListener('click', async () => {
     } catch (err) {
       toast(`Erreur : ${err.message}`, 'error');
     }
-  });
+  }, { once: true });
 });
 
 // ── Modifier un budget individuel ─────────────────────────────
@@ -284,10 +300,11 @@ function editCategoryLimit(category, currentLimit) {
     } catch (err) {
       toast(`Erreur : ${err.message}`, 'error');
     }
-  });
+  }, { once: true });
 }
 
 document.getElementById('budgetMonth').addEventListener('change', loadBudget);
+document.getElementById('budgetMonth').addEventListener('input', loadBudget);
 
 window.addEventListener('pagechange', (e) => {
   if (e.detail === 'budget') { initBudgetMonth(); loadBudget(); }

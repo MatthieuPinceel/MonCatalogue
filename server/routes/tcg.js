@@ -1,11 +1,5 @@
 'use strict';
 
-/**
- * Routes TCG — Phase 2
- * Pokémon (api.pokemontcg.io) + Lorcana (api.lorcast.com)
- * Tracker de collection, cartes manquantes, valeur totale.
- */
-
 const express  = require('express');
 const router   = express.Router();
 const axios    = require('axios');
@@ -53,7 +47,7 @@ router.get('/pokemon/cards', async (req, res) => {
       ? { 'X-Api-Key': process.env.POKEMON_TCG_API_KEY } : {};
     let q = '';
     if (set)  q += `set.id:${set} `;
-    if (name) q += `name:"${name}"`;
+    if (name) q += `name:"${name.replace(/"/g, '\\"')}"`;
     const params = { page, pageSize: 36, orderBy: 'number' };
     if (q.trim()) params.q = q.trim();
 
@@ -123,7 +117,6 @@ router.get('/collection', (req, res) => {
     sql += ' ORDER BY game, set_name, card_name';
     const rows = db.prepare(sql).all(...args);
 
-    // Valeur totale
     const valueSql = game
       ? 'SELECT COALESCE(SUM(market_price * quantity),0) as total FROM tcg_collection WHERE game = ?'
       : 'SELECT COALESCE(SUM(market_price * quantity),0) as total FROM tcg_collection';
@@ -152,7 +145,9 @@ router.post('/collection', (req, res) => {
         quantity  = quantity + excluded.quantity,
         notes     = excluded.notes
     `).run(game, card_id, set_id, set_name, card_name, rarity, condition, quantity, price_paid, notes);
-    res.json({ id: result.lastInsertRowid });
+    // Récupère l'ID réel (lastInsertRowid = 0 en cas de UPDATE avec SQLite < 3.35)
+    const row = db.prepare('SELECT id FROM tcg_collection WHERE game=? AND card_id=? AND condition=?').get(game, card_id, condition);
+    res.json({ id: row?.id ?? result.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -177,8 +172,8 @@ router.get('/missing', async (req, res) => {
   }
 
   try {
-    const db      = getDb();
-    const owned   = new Set(
+    const db    = getDb();
+    const owned = new Set(
       db.prepare('SELECT card_id FROM tcg_collection WHERE game = ? AND set_id = ?')
         .all(game, set).map(r => r.card_id)
     );
@@ -187,8 +182,15 @@ router.get('/missing', async (req, res) => {
     if (game === 'pokemon') {
       const headers = process.env.POKEMON_TCG_API_KEY
         ? { 'X-Api-Key': process.env.POKEMON_TCG_API_KEY } : {};
-      const { data } = await http.get(`${POKEMON_BASE}/cards?q=set.id:${set}&pageSize=300`, { headers });
-      allCards = (data.data || []).map(c => ({ id: c.id, name: c.name, number: c.number, rarity: c.rarity }));
+      // L'API Pokémon TCG limite pageSize à 250 — on pagine pour les grands sets
+      let page = 1;
+      while (true) {
+        const { data } = await http.get(`${POKEMON_BASE}/cards?q=set.id:${set}&pageSize=250&page=${page}`, { headers });
+        const cards = data.data || [];
+        allCards = allCards.concat(cards.map(c => ({ id: c.id, name: c.name, number: c.number, rarity: c.rarity })));
+        if (cards.length < 250) break;
+        page++;
+      }
     } else if (game === 'lorcana') {
       const { data } = await http.get(`${LORCANA_BASE}/cards?set=${set}`);
       allCards = (data.results || data || []).map(c => ({ id: c.id, name: c.name, rarity: c.rarity }));
@@ -222,7 +224,112 @@ router.get('/export', (req, res) => {
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="tcg_collection_${game || 'all'}.csv"`);
-    res.send('\uFEFF' + header + csv); // BOM pour Excel
+    res.send('﻿' + header + csv);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------
+// WISHLIST TCG — cartes + produits scellés
+// NOTE: /wishlist/prices DOIT être déclaré avant /wishlist/:id
+// ---------------------------------------------------------------
+
+/**
+ * GET /api/tcg/wishlist/prices
+ * Retourne la wishlist enrichie des meilleures offres trouvées dans promos.
+ */
+router.get('/wishlist/prices', (req, res) => {
+  try {
+    const db    = getDb();
+    const { game } = req.query;
+    let sql = 'SELECT * FROM tcg_wishlist';
+    const args = [];
+    if (game) { sql += ' WHERE game = ?'; args.push(game); }
+    sql += ' ORDER BY game, product_type, name';
+    const items = db.prepare(sql).all(...args);
+
+    const results = items.map(item => {
+      const words = item.name.split(/\s+/).filter(w => w.length > 2).slice(0, 4);
+      if (!words.length) return { ...item, offers: [] };
+
+      const placeholders = words.map(() => 'title LIKE ?').join(' OR ');
+      const likeArgs = words.map(w => `%${w}%`);
+
+      const offers = db.prepare(
+        `SELECT source, title, price, original_price, discount_percent, url, image_url, scraped_at
+         FROM promos
+         WHERE (${placeholders}) AND category = 'TCG'
+         ORDER BY price ASC LIMIT 5`
+      ).all(...likeArgs);
+
+      return { ...item, offers };
+    });
+
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /api/tcg/wishlist */
+router.get('/wishlist', (req, res) => {
+  try {
+    const db   = getDb();
+    const { game } = req.query;
+    let sql = 'SELECT * FROM tcg_wishlist';
+    const args = [];
+    if (game) { sql += ' WHERE game = ?'; args.push(game); }
+    sql += ' ORDER BY game, product_type, name';
+    res.json(db.prepare(sql).all(...args));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /api/tcg/wishlist */
+router.post('/wishlist', (req, res) => {
+  try {
+    const db = getDb();
+    const { game, product_type, name, set_name, target_price, image_url, notes } = req.body;
+    if (!game || !product_type || !name) {
+      return res.status(400).json({ error: 'game, product_type et name sont requis' });
+    }
+    const result = db.prepare(`
+      INSERT INTO tcg_wishlist (game, product_type, name, set_name, target_price, image_url, notes, added_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `).run(game, product_type, name, set_name || null, target_price || null, image_url || null, notes || null);
+    res.json({ id: result.lastInsertRowid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** PUT /api/tcg/wishlist/:id */
+router.put('/wishlist/:id', (req, res) => {
+  try {
+    const db = getDb();
+    const { game, product_type, name, set_name, target_price, image_url, notes } = req.body;
+    if (!game || !product_type || !name) {
+      return res.status(400).json({ error: 'game, product_type et name sont requis' });
+    }
+    const result = db.prepare(`
+      UPDATE tcg_wishlist SET game=?, product_type=?, name=?, set_name=?, target_price=?, image_url=?, notes=?
+      WHERE id=?
+    `).run(game, product_type, name, set_name || null, target_price || null, image_url || null, notes || null, req.params.id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Élément non trouvé' });
+    res.json({ updated: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** DELETE /api/tcg/wishlist/:id */
+router.delete('/wishlist/:id', (req, res) => {
+  try {
+    const db = getDb();
+    db.prepare('DELETE FROM tcg_wishlist WHERE id = ?').run(req.params.id);
+    res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -18,12 +18,13 @@
     </div>
     <ul class="nav-links">
       <li><a href="#" class="nav-link active" data-page="dashboard"><span class="icon">🏠</span>Dashboard</a></li>
-      <li><a href="#" class="nav-link" data-page="promos"><span class="icon">🏷️</span>Promos</a></li>
+      <li><a href="#" class="nav-link" data-page="promos"><span class="icon">🏷️</span>Offres</a></li>
       <li><a href="#" class="nav-link" data-page="steam"><span class="icon">🎮</span>Steam</a></li>
       <li><a href="#" class="nav-link" data-page="tcg"><span class="icon">🃏</span>TCG</a></li>
       <li><a href="#" class="nav-link" data-page="lego"><span class="icon">🧱</span>Lego</a></li>
       <li><a href="#" class="nav-link" data-page="budget"><span class="icon">💰</span>Budget</a></li>
       <li><a href="#" class="nav-link" data-page="alerts"><span class="icon">🔔</span>Alertes</a></li>
+      <li><a href="#" class="nav-link" data-page="liens"><span class="icon">🔗</span>Liens</a></li>
     </ul>
     <div class="sidebar-footer">
       <div class="api-budget" id="apiBudget">
@@ -125,18 +126,43 @@
       <div class="tab-content active" id="promos-scrape">
         <div class="page-toolbar" style="margin-top:1rem">
           <div class="filters">
+            <input type="text" id="promoSearchInput" class="input" placeholder="🔍 Rechercher un article..." style="min-width:220px" />
+            <select id="promoTypeFilter" class="select">
+              <option value="promo">🏷️ Promotions</option>
+              <option value="catalog">📦 Catalogue</option>
+              <option value="">Tout</option>
+            </select>
             <select id="promoSourceFilter" class="select">
               <option value="">Toutes les sources</option>
             </select>
             <select id="promoCategoryFilter" class="select">
               <option value="">Toutes les catégories</option>
-              <option value="TCG">TCG</option>
-              <option value="Lego">Lego</option>
-              <option value="JeuxVideo">Jeux Vidéo</option>
-              <option value="JeuxSociete">Jeux de Société</option>
+              <option value="TCG">🃏 TCG</option>
+              <option value="Lego">🧱 Lego</option>
+              <option value="JeuxVideo">🎮 Jeux Vidéo</option>
+              <option value="JeuxSociete">♟️ Jeux de Société</option>
             </select>
+            <select id="promoSortFilter" class="select">
+              <option value="date_desc">📅 Plus récents</option>
+              <option value="discount_desc">🔥 Meilleure remise (%)</option>
+              <option value="savings_desc">💰 Plus grande économie (€)</option>
+              <option value="price_asc">Prix croissant</option>
+              <option value="price_desc">Prix décroissant</option>
+              <option value="alpha_asc">A → Z</option>
+              <option value="by_source">Par boutique</option>
+              <option value="by_category">Par catégorie</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:.4rem;font-size:.88rem;white-space:nowrap;cursor:pointer">
+              <input type="checkbox" id="promoOnlyFilter" /> En promo uniquement
+            </label>
           </div>
-          <button class="btn btn-primary" id="scrapeNowBtn">⚡ Scraper maintenant</button>
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+            <button class="btn btn-primary" id="scrapeNowBtn">⚡ Scraper promos</button>
+            <button class="btn btn-secondary" id="scrapeCatalogBtn">📦 Scanner catalogue</button>
+            <button class="btn btn-secondary" id="scrapeBySourceBtn">🎯 Par source</button>
+            <button class="btn btn-secondary" id="classifyPromosBtn">🤖 Classifier (IA)</button>
+            <button class="btn btn-danger" id="clearAllPromosBtn">🗑️ Vider la base</button>
+          </div>
         </div>
         <div id="promoGrid" class="promo-grid"></div>
         <div class="pagination" id="promoPagination"></div>
@@ -177,6 +203,7 @@
     <section class="page" id="page-tcg">
       <div class="tabs">
         <button class="tab active" data-tab="tcg-collection">Ma Collection</button>
+        <button class="tab" data-tab="tcg-wishlist">⭐ Wishlist</button>
         <button class="tab" data-tab="tcg-search">Recherche</button>
         <button class="tab" data-tab="tcg-missing">Cartes manquantes</button>
       </div>
@@ -203,6 +230,23 @@
             </tbody>
           </table>
         </div>
+      </div>
+
+      <!-- Wishlist -->
+      <div id="tcg-wishlist" class="tab-content">
+        <div class="page-toolbar">
+          <select id="wishlistGameFilter" class="select">
+            <option value="">Tous les jeux</option>
+            <option value="pokemon">Pokémon</option>
+            <option value="lorcana">Lorcana</option>
+            <option value="magic">Magic</option>
+            <option value="one_piece">One Piece</option>
+            <option value="autre">Autre</option>
+          </select>
+          <button class="btn btn-primary" id="addWishlistBtn">+ Ajouter</button>
+          <button class="btn btn-secondary" id="refreshWishlistPricesBtn">🔄 Actualiser les prix</button>
+        </div>
+        <div id="tcgWishlistGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-top:8px"></div>
       </div>
 
       <!-- Search -->
@@ -268,7 +312,10 @@
       <div id="budgetTotal" style="margin-bottom:1rem"></div>
       <div class="budget-grid" id="budgetGrid"></div>
       <div class="chart-card" style="margin-top:1.5rem">
-        <h3 class="chart-title">Évolution mensuelle</h3>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.5rem">
+          <h3 class="chart-title" style="margin:0">Évolution mensuelle</h3>
+          <span id="chartBudgetSubtitle" style="font-size:.75rem;color:var(--text-muted)">Historique 12 mois</span>
+        </div>
         <canvas id="chartBudgetHistory"></canvas>
       </div>
       <div class="card" style="margin-top:1.5rem">
@@ -319,6 +366,124 @@
       <div class="card" style="margin-top:1.5rem">
         <h3 class="card-title">Consommation API Anthropic</h3>
         <div id="anthropicUsage"></div>
+      </div>
+    </section>
+
+    <!-- ========== LIENS UTILES ========== -->
+    <section class="page" id="page-liens">
+      <div class="liens-grid">
+
+        <div class="liens-category">
+          <h2 class="liens-cat-title">🏪 Sites marchands</h2>
+          <div class="liens-cards">
+            <a class="lien-card" href="https://www.amazon.fr" target="_blank" rel="noopener">
+              <span class="lien-icon">📦</span><span class="lien-name">Amazon</span>
+            </a>
+            <a class="lien-card" href="https://www.fnac.com" target="_blank" rel="noopener">
+              <span class="lien-icon">🎵</span><span class="lien-name">Fnac</span>
+            </a>
+            <a class="lien-card" href="https://www.cdiscount.com" target="_blank" rel="noopener">
+              <span class="lien-icon">🛒</span><span class="lien-name">Cdiscount</span>
+            </a>
+            <a class="lien-card" href="https://www.cultura.com" target="_blank" rel="noopener">
+              <span class="lien-icon">🎨</span><span class="lien-name">Cultura</span>
+            </a>
+            <a class="lien-card" href="https://www.bcd-jeux.fr" target="_blank" rel="noopener">
+              <span class="lien-icon">🎲</span><span class="lien-name">BCD Jeux</span>
+            </a>
+            <a class="lien-card" href="https://www.philibert.fr" target="_blank" rel="noopener">
+              <span class="lien-icon">♟️</span><span class="lien-name">Philibert</span>
+            </a>
+            <a class="lien-card" href="https://www.kingjouet.fr" target="_blank" rel="noopener">
+              <span class="lien-icon">👑</span><span class="lien-name">King Jouet</span>
+            </a>
+            <a class="lien-card" href="https://www.smythstoys.com/fr" target="_blank" rel="noopener">
+              <span class="lien-icon">🧸</span><span class="lien-name">Smyths</span>
+            </a>
+            <a class="lien-card" href="https://www.lego.com/fr-fr" target="_blank" rel="noopener">
+              <span class="lien-icon">🧱</span><span class="lien-name">Lego.com</span>
+            </a>
+            <a class="lien-card" href="https://www.furet.com" target="_blank" rel="noopener">
+              <span class="lien-icon">📚</span><span class="lien-name">Furet du Nord</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="liens-category">
+          <h2 class="liens-cat-title">💰 Comparateurs de prix</h2>
+          <div class="liens-cards">
+            <a class="lien-card" href="https://www.idealo.fr" target="_blank" rel="noopener">
+              <span class="lien-icon">📊</span><span class="lien-name">Idealo</span>
+            </a>
+            <a class="lien-card" href="https://shopping.google.fr" target="_blank" rel="noopener">
+              <span class="lien-icon">🔍</span><span class="lien-name">Google Shopping</span>
+            </a>
+            <a class="lien-card" href="https://camelcamelcamel.com" target="_blank" rel="noopener">
+              <span class="lien-icon">🐪</span><span class="lien-name">CamelCamelCamel</span>
+            </a>
+            <a class="lien-card" href="https://keepa.com" target="_blank" rel="noopener">
+              <span class="lien-icon">📈</span><span class="lien-name">Keepa</span>
+            </a>
+            <a class="lien-card" href="https://www.dealabs.com" target="_blank" rel="noopener">
+              <span class="lien-icon">🏷️</span><span class="lien-name">Dealabs</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="liens-category">
+          <h2 class="liens-cat-title">🃏 TCG</h2>
+          <div class="liens-cards">
+            <a class="lien-card" href="https://www.cardmarket.com/fr" target="_blank" rel="noopener">
+              <span class="lien-icon">🃏</span><span class="lien-name">Cardmarket</span>
+            </a>
+            <a class="lien-card" href="https://www.tcgplayer.com" target="_blank" rel="noopener">
+              <span class="lien-icon">🎴</span><span class="lien-name">TCGPlayer</span>
+            </a>
+            <a class="lien-card" href="https://www.pokemon.com/fr/jcc-pokemon/" target="_blank" rel="noopener">
+              <span class="lien-icon">⚡</span><span class="lien-name">Pokémon TCG</span>
+            </a>
+            <a class="lien-card" href="https://www.pokedata.io" target="_blank" rel="noopener">
+              <span class="lien-icon">📉</span><span class="lien-name">PokeData</span>
+            </a>
+            <a class="lien-card" href="https://www.lorcana-cards.io" target="_blank" rel="noopener">
+              <span class="lien-icon">🌊</span><span class="lien-name">Lorcana Cards</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="liens-category">
+          <h2 class="liens-cat-title">🧱 Lego</h2>
+          <div class="liens-cards">
+            <a class="lien-card" href="https://www.bricklink.com" target="_blank" rel="noopener">
+              <span class="lien-icon">🔗</span><span class="lien-name">BrickLink</span>
+            </a>
+            <a class="lien-card" href="https://brickset.com" target="_blank" rel="noopener">
+              <span class="lien-icon">📋</span><span class="lien-name">BrickSet</span>
+            </a>
+            <a class="lien-card" href="https://www.brickeconomy.com" target="_blank" rel="noopener">
+              <span class="lien-icon">💹</span><span class="lien-name">BrickEconomy</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="liens-category">
+          <h2 class="liens-cat-title">🎮 Jeux vidéo</h2>
+          <div class="liens-cards">
+            <a class="lien-card" href="https://store.steampowered.com" target="_blank" rel="noopener">
+              <span class="lien-icon">🖥️</span><span class="lien-name">Steam Store</span>
+            </a>
+            <a class="lien-card" href="https://www.instant-gaming.com" target="_blank" rel="noopener">
+              <span class="lien-icon">⚡</span><span class="lien-name">Instant Gaming</span>
+            </a>
+            <a class="lien-card" href="https://www.gog.com" target="_blank" rel="noopener">
+              <span class="lien-icon">🎁</span><span class="lien-name">GOG</span>
+            </a>
+            <a class="lien-card" href="https://www.isthereanydeal.com" target="_blank" rel="noopener">
+              <span class="lien-icon">🔎</span><span class="lien-name">IsThereAnyDeal</span>
+            </a>
+          </div>
+        </div>
+
       </div>
     </section>
   </main>

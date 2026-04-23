@@ -12,6 +12,14 @@ const STEAM_ID      = process.env.STEAM_ID;
 
 const http = axios.create({ timeout: 10000 });
 
+let _withPage = null;
+function getWithPage() {
+  if (_withPage) return _withPage;
+  try { _withPage = require('./chromium-steam').withPage; return _withPage; } catch {}
+  try { _withPage = require('../services/chromium').withPage; return _withPage; } catch {}
+  return null;
+}
+
 // ---------------------------------------------------------------
 // GET /api/steam/library
 // Retourne la bibliothèque Steam depuis la DB (fraîcheur < 6h) ou l'API.
@@ -168,45 +176,121 @@ async function fetchSteamLibrary() {
 
 async function fetchSteamWishlist() {
   if (!STEAM_ID) throw new Error('STEAM_ID manquant dans .env');
+  logger.info(`[Steam/Wishlist] STEAM_ID=${STEAM_ID} — chargement via Chromium`);
 
-  // La wishlist Steam est publique si le profil est public
-  const url = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/wishlistdata/?p=0`;
+  const withPage = getWithPage();
+  if (!withPage) throw new Error('Chromium non disponible — puppeteer requis pour la wishlist Steam');
 
-  const { data } = await http.get(url, {
-    headers: {
-      'User-Agent': process.env.SCRAPE_USER_AGENT || 'Mozilla/5.0',
-      'Accept': 'application/json'
+  const loginSecure = process.env.STEAM_LOGIN_SECURE;
+  logger.info(`[Steam/Wishlist] cookie steamLoginSecure : ${loginSecure ? 'présent ✓' : 'absent — profil public ou wishlist privée'}`);
+
+  // Chromium intercepte la réponse XHR /wishlistdata/ comme un vrai navigateur
+  const allData = {};
+  await withPage(async (page) => {
+    // Injecter le cookie de session si fourni dans .env
+    if (loginSecure) {
+      await page.setCookie({
+        name:   'steamLoginSecure',
+        value:  loginSecure,
+        domain: '.steampowered.com',
+        path:   '/',
+        secure: true,
+        httpOnly: true,
+      });
+      logger.info('[Steam/Wishlist] Cookie steamLoginSecure injecté dans Chromium');
+    }
+
+    // Intercepter toutes les réponses /wishlistdata/
+    page.on('response', async (response) => {
+      if (!response.url().includes('wishlistdata')) return;
+      try {
+        const text = await response.text();
+        const json = JSON.parse(text);
+        if (json && typeof json === 'object' && !Array.isArray(json) && !json.success) {
+          Object.assign(allData, json);
+          logger.info(`[Steam/Wishlist] XHR intercepté — ${Object.keys(json).length} jeux`);
+        } else {
+          logger.warn(`[Steam/Wishlist] XHR vide ou erreur — ${text.slice(0, 100)}`);
+        }
+      } catch (e) { /* pas JSON, ignore */ }
+    });
+
+    const wishUrl = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/`;
+    logger.info(`[Steam/Wishlist] Navigation vers ${wishUrl}`);
+    await page.goto(wishUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+
+    // Attendre que les items wishlist soient rendus
+    // Diagnostic : voir sur quelle page on est vraiment
+    const finalUrl   = page.url();
+    const pageTitle  = await page.title();
+    const bodySnap   = await page.evaluate(() => document.body?.innerText?.slice(0, 400).replace(/\s+/g, ' ') || '');
+    logger.info(`[Steam/Wishlist] URL finale : ${finalUrl}`);
+    logger.info(`[Steam/Wishlist] Titre page : ${pageTitle}`);
+    logger.info(`[Steam/Wishlist] Contenu body (400c) : ${bodySnap}`);
+
+    await page.waitForSelector(
+      '[class*="wishlist_row"], [data-appid], .wishlist_row_item',
+      { timeout: 20000 }
+    ).catch(() => logger.warn('[Steam/Wishlist] Sélecteur wishlist_row non trouvé'));
+
+    // Laisser finir les éventuels appels XHR de pagination
+    await new Promise(r => setTimeout(r, 3000));
+
+    // Tentative d'extraction depuis le JS de la page si XHR non intercepté
+    if (!Object.keys(allData).length) {
+      logger.info('[Steam/Wishlist] XHR non intercepté, extraction JS...');
+      const jsData = await page.evaluate(() => {
+        // Steam stocke les données dans window.g_Wishlist ou variable similaire
+        if (window.g_Wishlist?.rgAllApps) return window.g_Wishlist.rgAllApps;
+        if (window.g_rgWishlistData)       return window.g_rgWishlistData;
+        // Fallback : extraire depuis le DOM
+        const items = {};
+        document.querySelectorAll('[data-appid]').forEach(el => {
+          const id = el.dataset.appid;
+          if (!id || items[id]) return;
+          const name = el.querySelector('[class*="title"], h4, h3')?.textContent?.trim() || '';
+          items[id] = { name };
+        });
+        return items;
+      });
+      if (jsData && typeof jsData === 'object') {
+        Object.assign(allData, Array.isArray(jsData)
+          ? Object.fromEntries(jsData.map(i => [i.appid, i]))
+          : jsData
+        );
+        logger.info(`[Steam/Wishlist] JS extrait — ${Object.keys(allData).length} jeux`);
+      }
     }
   });
 
-  const db    = getDb();
-  const now   = new Date().toISOString();
+  logger.info(`[Steam/Wishlist] Total brut : ${Object.keys(allData).length} jeux`);
+
   const items = [];
-
-  if (data && typeof data === 'object') {
-    for (const [appid, info] of Object.entries(data)) {
-      if (info.name) {
-        // Récupérer le prix depuis l'API store si disponible
-        const subs  = info.subs || [];
-        const sub   = subs.find(s => s.discount_pct !== undefined) || subs[0] || {};
-        const price = sub.price ? sub.price / 100 : null;
-        const sale  = sub.discount_pct ? price * (1 - sub.discount_pct / 100) : price;
-
-        items.push({
-          appid:        parseInt(appid, 10),
-          name:         info.name,
-          price:        price,
-          sale_price:   sale,
-          discount:     sub.discount_pct || 0,
-          release_date: info.release_string || null,
-          image_url:    `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
-          store_url:    `https://store.steampowered.com/app/${appid}`,
-          updated_at:   now
-        });
-      }
-    }
+  for (const [appid, info] of Object.entries(allData)) {
+    const subs      = info.subs || [];
+    const sub       = subs.find(s => s.discount_pct > 0) || subs[0] || {};
+    const price     = sub.price != null ? sub.price / 100 : null;
+    const discount  = sub.discount_pct || 0;
+    const salePrice = price && discount ? Math.round(price * (1 - discount / 100) * 100) / 100 : price;
+    items.push({
+      appid:        parseInt(appid, 10),
+      name:         info.name || `App ${appid}`,
+      price,
+      sale_price:   salePrice,
+      discount,
+      release_date: info.release_string || null,
+      image_url:    `https://cdn.akamai.steamstatic.com/steam/apps/${appid}/header.jpg`,
+      store_url:    `https://store.steampowered.com/app/${appid}`,
+      updated_at:   new Date().toISOString()
+    });
   }
 
+  if (!items.length) {
+    logger.warn('[Steam/Wishlist] Aucun jeu — wishlist vide ou profil privé ?');
+    return [];
+  }
+
+  const db   = getDb();
   const stmt = db.prepare(`
     INSERT INTO steam_wishlist (appid, name, price, sale_price, discount, release_date, image_url, store_url, updated_at)
     VALUES (@appid, @name, @price, @sale_price, @discount, @release_date, @image_url, @store_url, @updated_at)
@@ -220,12 +304,18 @@ async function fetchSteamWishlist() {
       store_url    = excluded.store_url,
       updated_at   = excluded.updated_at
   `);
-
-  const upsert = db.transaction((rows) => { for (const r of rows) stmt.run(r); });
-  upsert(items);
+  db.transaction((rows) => { for (const r of rows) stmt.run(r); })(items);
 
   logger.info(`[Steam] Wishlist : ${items.length} jeux enregistrés`);
   return db.prepare('SELECT * FROM steam_wishlist ORDER BY name ASC').all();
 }
 
+async function _refresh() {
+  const [library, wishlist] = await Promise.all([fetchSteamLibrary(), fetchSteamWishlist()]);
+  cache.del('steam_library');
+  cache.del('steam_wishlist');
+  return { library: library.length, wishlist: wishlist.length };
+}
+
+router._refresh = _refresh;
 module.exports = router;

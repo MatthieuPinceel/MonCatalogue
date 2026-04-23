@@ -100,8 +100,9 @@ cron.schedule('0 6 * * *', async () => {
       logger.warn('[Cron] Steam : STEAM_API_KEY ou STEAM_ID manquant');
       return;
     }
-    const axios = require('axios');
-    await axios.post(`http://localhost:${process.env.PORT || 3000}/api/steam/refresh`);
+    const steamRouter = require('./routes/steam');
+    // Appel direct aux fonctions internes sans passer par HTTP
+    await steamRouter._refresh();
     logger.info('[Cron] Refresh Steam — terminé');
   } catch (err) {
     logger.error(`[Cron] Steam refresh erreur : ${err.message}`);

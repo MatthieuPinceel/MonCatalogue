@@ -3,6 +3,32 @@
    tcg.js — Page TCG (Pokémon + Lorcana)
    ============================================================ */
 
+const CONDITION_FR = {
+  NM: 'Comme neuf (NM)',
+  LP: 'Légèrement jouée (LP)',
+  MP: 'Moyennement jouée (MP)',
+  HP: 'Très jouée (HP)',
+  D:  'Endommagée (D)',
+};
+
+const RARITY_FR = {
+  Common:                      'Commune',
+  Uncommon:                    'Peu commune',
+  Rare:                        'Rare',
+  'Rare Holo':                 'Rare Holo',
+  'Rare Ultra':                'Ultra Rare',
+  'Rare Secret':               'Secret Rare',
+  'Rare Rainbow':              'Rainbow Rare',
+  'Amazing Rare':              'Rare Extraordinaire',
+  'Hyper Rare':                'Hyper Rare',
+  'Double Rare':               'Double Rare',
+  'Illustration Rare':         'Rare Illustrée',
+  'Special Illustration Rare': 'Rare Ill. Spéciale',
+  'Ultra Rare':                'Ultra Rare',
+  'Secret Rare':               'Secret Rare',
+  Promo:                       'Promo',
+};
+
 async function loadTCGCollection() {
   const game = document.getElementById('tcgGameFilter').value;
   const params = game ? `?game=${game}` : '';
@@ -26,11 +52,11 @@ function renderCollection(cards) {
   }
   tbody.innerHTML = cards.map(c => `
     <tr>
-      <td><span class="badge badge-muted">${escHtml(c.game)}</span></td>
+      <td><span class="badge badge-muted">${escHtml(GAME_LABELS[c.game] || c.game)}</span></td>
       <td>${escHtml(c.set_name || '—')}</td>
       <td>${escHtml(c.card_name)}</td>
-      <td>${escHtml(c.rarity || '—')}</td>
-      <td>${escHtml(c.condition)}</td>
+      <td>${escHtml(RARITY_FR[c.rarity] || c.rarity || '—')}</td>
+      <td title="${escHtml(CONDITION_FR[c.condition] || c.condition)}">${escHtml(c.condition)}</td>
       <td>${c.quantity}</td>
       <td>${c.market_price ? formatPrice(c.market_price) : '—'}</td>
       <td>
@@ -90,10 +116,11 @@ document.getElementById('addCardBtn').addEventListener('click', () => {
         <div class="form-group">
           <label class="form-label">État</label>
           <select name="condition" class="select">
-            <option value="NM">NM (Near Mint)</option>
-            <option value="LP">LP (Light Played)</option>
-            <option value="MP">MP (Moderately Played)</option>
-            <option value="HP">HP (Heavily Played)</option>
+            <option value="NM">NM — Comme neuf</option>
+            <option value="LP">LP — Légèrement jouée</option>
+            <option value="MP">MP — Moyennement jouée</option>
+            <option value="HP">HP — Très jouée</option>
+            <option value="D">D — Endommagée</option>
           </select>
         </div>
       </div>
@@ -162,7 +189,7 @@ document.getElementById('searchCardBtn').addEventListener('click', async () => {
     }
 
     container.innerHTML = cards.slice(0, 40).map(c => `
-      <div class="tcg-card" onclick="quickAddCard('${escHtml(game)}','${escHtml(c.id)}','${escHtml(c.name)}','${escHtml(c.set||'')}','${escHtml(c.rarity||'')}')">
+      <div class="tcg-card" onclick="quickAddCard('${escHtml(game)}','${escHtml(c.id).replace(/'/g,"\\'")}','${escHtml(c.name).replace(/'/g,"\\'")}','${escHtml(c.set||'').replace(/'/g,"\\'")}','${escHtml(c.rarity||'').replace(/'/g,"\\'")}')">
         ${c.image ? `<img src="${escHtml(c.image)}" alt="${escHtml(c.name)}" loading="lazy" />` : '<div style="height:120px;background:var(--bg-hover);display:flex;align-items:center;justify-content:center;font-size:2rem">🃏</div>'}
         <div class="tcg-card-body">
           <div class="tcg-card-name">${escHtml(c.name)}</div>
@@ -231,3 +258,184 @@ window.addEventListener('pagechange', (e) => {
 // Exporter globalement
 window.deleteCard   = deleteCard;
 window.quickAddCard = quickAddCard;
+
+// ================================================================
+// WISHLIST TCG
+// ================================================================
+
+const GAME_LABELS = { pokemon: 'Pokémon', lorcana: 'Lorcana', magic: 'Magic', one_piece: 'One Piece', autre: 'Autre' };
+const TYPE_LABELS = {
+  carte: '🃏 Carte', booster: '📦 Booster', display: '📦 Display',
+  etb: '🎁 ETB', tin: '📦 Tin', coffret: '🎁 Coffret',
+  deck: '🗂 Deck', blister: '📦 Blister', bundle: '🎁 Bundle', autre: '🏷️ Autre'
+};
+const GAME_COLORS = { pokemon: '#f59e0b', lorcana: '#6366f1', magic: '#22c55e', one_piece: '#ef4444', autre: '#64748b' };
+
+async function loadWishlist() {
+  const game = document.getElementById('wishlistGameFilter').value;
+  const params = game ? `?game=${game}` : '';
+  try {
+    const items = await API.get(`/tcg/wishlist/prices${params}`);
+    renderWishlist(items);
+  } catch (err) {
+    toast(`Erreur wishlist : ${err.message}`, 'error');
+  }
+}
+
+function renderWishlist(items) {
+  const grid = document.getElementById('tcgWishlistGrid');
+  if (!items.length) {
+    grid.innerHTML = `
+      <div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-icon">⭐</div>
+        <p>Wishlist vide.<br>Ajoutez des cartes, boosters, ETB que vous voulez acheter.</p>
+      </div>`;
+    return;
+  }
+  grid.innerHTML = items.map(item => {
+    const color  = GAME_COLORS[item.game] || '#64748b';
+    const offers = item.offers || [];
+    const bestOffer = offers[0];
+    const overBudget = item.target_price && bestOffer && bestOffer.price > item.target_price;
+
+    return `
+      <div class="card" style="border-left:3px solid ${color};padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:8px">
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:700;font-size:.9rem;margin-bottom:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(item.name)}</div>
+            <div style="display:flex;gap:4px;flex-wrap:wrap">
+              <span class="badge badge-muted" style="font-size:.68rem;background:${color}22;color:${color}">${GAME_LABELS[item.game] || item.game}</span>
+              <span class="badge badge-muted" style="font-size:.68rem">${TYPE_LABELS[item.product_type] || item.product_type}</span>
+              ${item.set_name ? `<span class="badge badge-muted" style="font-size:.68rem">${escHtml(item.set_name)}</span>` : ''}
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0">
+            <button class="btn-icon" onclick="editWishlistItem(${item.id})" title="Modifier">✏️</button>
+            <button class="btn-icon" onclick="deleteWishlistItem(${item.id})" title="Supprimer">🗑</button>
+          </div>
+        </div>
+        ${item.target_price ? `<div style="font-size:.75rem;color:var(--text-muted);margin-bottom:6px">Budget max : <strong style="color:var(--text)">${formatPrice(item.target_price)}</strong></div>` : ''}
+        ${offers.length ? `
+          <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+            <div style="font-size:.7rem;color:var(--text-muted);margin-bottom:4px">Meilleures offres trouvées :</div>
+            ${offers.map(o => `
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:.78rem;padding:2px 0">
+                <span style="color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${escHtml(o.source)} — ${escHtml(o.title.substring(0,35))}…</span>
+                <span style="display:flex;align-items:center;gap:3px;flex-shrink:0">
+                  <strong style="color:${overBudget && o === bestOffer ? 'var(--warning)' : 'var(--success)'}">${formatPrice(o.price)}</strong>
+                  ${o.discount_percent ? `<span class="promo-badge" style="font-size:.6rem">-${o.discount_percent}%</span>` : ''}
+                  ${o.url ? `<a href="${escHtml(o.url)}" target="_blank" rel="noopener" style="font-size:.65rem">→</a>` : ''}
+                </span>
+              </div>
+            `).join('')}
+          </div>
+        ` : `<div style="font-size:.75rem;color:var(--text-muted);margin-top:4px;padding-top:6px;border-top:1px solid var(--border)">Aucune offre trouvée — lancez un scan catalogue TCG</div>`}
+        ${item.notes ? `<div style="font-size:.72rem;color:var(--text-muted);margin-top:6px;font-style:italic">${escHtml(item.notes)}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function showWishlistModal(existing = null) {
+  const s = existing || {};
+  Modal.open(existing ? 'Modifier' : 'Ajouter à la wishlist TCG', `
+    <form id="wishlistForm">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Jeu *</label>
+          <select name="game" class="select">
+            <option value="pokemon"   ${s.game==='pokemon'  ?'selected':''}>Pokémon</option>
+            <option value="lorcana"   ${s.game==='lorcana'  ?'selected':''}>Lorcana</option>
+            <option value="magic"     ${s.game==='magic'    ?'selected':''}>Magic</option>
+            <option value="one_piece" ${s.game==='one_piece'?'selected':''}>One Piece</option>
+            <option value="autre"     ${s.game==='autre'    ?'selected':''}>Autre</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Type *</label>
+          <select name="product_type" class="select">
+            <option value="booster"  ${s.product_type==='booster' ?'selected':''}>📦 Booster</option>
+            <option value="display"  ${s.product_type==='display' ?'selected':''}>📦 Display / Booster Box</option>
+            <option value="etb"      ${s.product_type==='etb'     ?'selected':''}>🎁 ETB (Elite Trainer Box)</option>
+            <option value="coffret"  ${s.product_type==='coffret' ?'selected':''}>🎁 Coffret</option>
+            <option value="tin"      ${s.product_type==='tin'     ?'selected':''}>📦 Tin</option>
+            <option value="blister"  ${s.product_type==='blister' ?'selected':''}>📦 Blister</option>
+            <option value="bundle"   ${s.product_type==='bundle'  ?'selected':''}>🎁 Bundle</option>
+            <option value="deck"     ${s.product_type==='deck'    ?'selected':''}>🗂 Deck / Starter</option>
+            <option value="carte"    ${s.product_type==='carte'   ?'selected':''}>🃏 Carte</option>
+            <option value="autre"    ${s.product_type==='autre'   ?'selected':''}>Autre</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Nom *</label>
+        <input name="name" class="input" value="${escHtml(s.name||'')}" placeholder="ex: Booster SV09 - Scarlet &amp; Violet" required />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Extension / Set</label>
+          <input name="set_name" class="input" value="${escHtml(s.set_name||'')}" placeholder="ex: Stellar Crown" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Budget max (€)</label>
+          <input name="target_price" class="input" type="number" step="0.01" value="${s.target_price||''}" placeholder="ex: 6.50" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <input name="notes" class="input" value="${escHtml(s.notes||'')}" placeholder="ex: Attendre une promo..." />
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn btn-secondary" onclick="Modal.close()">Annuler</button>
+        <button type="submit" class="btn btn-primary">${existing ? 'Enregistrer' : 'Ajouter'}</button>
+      </div>
+    </form>
+  `);
+
+  document.getElementById('wishlistForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(e.target));
+    if (body.target_price) body.target_price = parseFloat(body.target_price);
+    try {
+      if (existing) {
+        await API.put(`/tcg/wishlist/${existing.id}`, body);
+        toast('Mis à jour !', 'success');
+      } else {
+        await API.post('/tcg/wishlist', body);
+        toast('Ajouté à la wishlist !', 'success');
+      }
+      Modal.close();
+      loadWishlist();
+    } catch (err) {
+      toast(`Erreur : ${err.message}`, 'error');
+    }
+  }, { once: true });
+}
+
+async function editWishlistItem(id) {
+  try {
+    const items = await API.get('/tcg/wishlist');
+    const item  = items.find(i => i.id === id);
+    if (item) showWishlistModal(item);
+  } catch (err) {
+    toast(`Erreur : ${err.message}`, 'error');
+  }
+}
+
+async function deleteWishlistItem(id) {
+  if (!confirm('Retirer de la wishlist ?')) return;
+  try {
+    await API.del(`/tcg/wishlist/${id}`);
+    toast('Retiré de la wishlist', 'success');
+    loadWishlist();
+  } catch (err) {
+    toast(`Erreur : ${err.message}`, 'error');
+  }
+}
+
+document.getElementById('addWishlistBtn').addEventListener('click', () => showWishlistModal());
+document.getElementById('wishlistGameFilter').addEventListener('change', loadWishlist);
+document.getElementById('refreshWishlistPricesBtn').addEventListener('click', loadWishlist);
+document.querySelector('[data-tab="tcg-wishlist"]').addEventListener('click', loadWishlist);
+
+window.editWishlistItem   = editWishlistItem;
+window.deleteWishlistItem = deleteWishlistItem;

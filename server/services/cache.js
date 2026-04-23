@@ -1,17 +1,7 @@
 'use strict';
 
-/**
- * Cache en mémoire simple avec TTL.
- * Évite les requêtes API/scraping répétées dans la même session.
- */
-
 const store = new Map();
 
-/**
- * @param {string} key
- * @param {*} value
- * @param {number} ttlSeconds  durée de vie en secondes (défaut : 5 min)
- */
 function set(key, value, ttlSeconds = 300) {
   store.set(key, {
     value,
@@ -19,10 +9,6 @@ function set(key, value, ttlSeconds = 300) {
   });
 }
 
-/**
- * @param {string} key
- * @returns {*|null}  null si absent ou expiré
- */
 function get(key) {
   const entry = store.get(key);
   if (!entry) return null;
@@ -44,5 +30,13 @@ function clear() {
 function size() {
   return store.size;
 }
+
+// Purge des entrées expirées toutes les minutes pour éviter la fuite mémoire
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of store) {
+    if (now > v.expiresAt) store.delete(k);
+  }
+}, 60000).unref();
 
 module.exports = { set, get, del, clear, size };

@@ -100,8 +100,8 @@ const Nav = {
     document.querySelectorAll('.nav-link').forEach(l => l.classList.toggle('active', l.dataset.page === page));
     document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
     document.getElementById('pageTitle').textContent = {
-      dashboard: 'Dashboard', promos: 'Promos', steam: 'Steam',
-      tcg: 'TCG', lego: 'Lego', budget: 'Budget', alerts: 'Alertes'
+      dashboard: 'Dashboard', promos: 'Offres', steam: 'Steam',
+      tcg: 'TCG', lego: 'Lego', budget: 'Budget', alerts: 'Alertes', liens: 'Liens utiles'
     }[page] || page;
     // Charger les données de la page
     window.dispatchEvent(new CustomEvent('pagechange', { detail: page }));

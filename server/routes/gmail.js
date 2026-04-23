@@ -40,8 +40,7 @@ Format: {"offres":[{"produit":"...","prix":"...","remise":"...","condition":"...
 const TOKEN_PATH    = path.resolve(process.env.GMAIL_TOKEN_PATH || 'server/gmail_token.json');
 const REDIRECT_URI  = process.env.GMAIL_REDIRECT_URI || 'http://localhost:3000/api/gmail/oauth2callback';
 const SCOPES        = [
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.send'
+  'https://www.googleapis.com/auth/gmail.readonly'
 ];
 
 // Expéditeurs de newsletters promos à scanner
@@ -196,7 +195,7 @@ router.post('/scan', async (req, res) => {
   }
 
   try {
-    const days    = parseInt(req.body.days || req.query.days || 7, 10);
+    const days    = Math.min(Math.max(parseInt(req.body.days || req.query.days || 7, 10), 1), 30);
     const results = await scanPromoEmails(days);
     res.json(results);
   } catch (err) {
@@ -255,8 +254,8 @@ router.get('/promos', (req, res) => {
     res.json(rows.map(r => ({
       ...r,
       category:         r.category || guessCategoryFromEmail((r.subject || '') + ' ' + (r.snippet || '') + ' ' + (r.sender || '')),
-      extracted_promos: r.extracted_promos ? JSON.parse(r.extracted_promos) : [],
-      ai_summary:       r.ai_summary ? JSON.parse(r.ai_summary) : null,
+      extracted_promos: safeJsonParse(r.extracted_promos, []),
+      ai_summary:       safeJsonParse(r.ai_summary, null),
       gmail_link:       `https://mail.google.com/mail/u/0/#all/${r.message_id}`
     })));
   } catch (err) {
@@ -305,26 +304,26 @@ async function scanPromoEmails(days = 7) {
     const date     = headers.find(h => h.name === 'Date')?.value    || '';
     const snippet  = detail.data.snippet || '';
 
-    const extracted  = extractPromosFromText(subject + ' ' + snippet);
-    const category   = guessCategoryFromEmail(subject + ' ' + snippet + ' ' + sender);
+    const extracted = extractPromosFromText(subject + ' ' + snippet);
+    const category  = guessCategoryFromEmail(subject + ' ' + snippet + ' ' + sender);
 
-    // Extraction Vision si clé dispo
-    const htmlBody   = getHtmlBody(detail.data.payload);
-    const imageUrls  = htmlBody ? extractImageUrls(htmlBody) : [];
-    const aiSummary  = await analyzeWithVision(imageUrls);
-
+    // Vision N'EST PAS appelé automatiquement au scan — utiliser le bouton "Analyser avec Vision"
     db.prepare(`
       INSERT OR IGNORE INTO gmail_promos
         (message_id, subject, sender, snippet, extracted_promos, category, ai_summary, received_at, processed_at, used_ai)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
-    `).run(msg.id, subject, sender, snippet, JSON.stringify(extracted), category,
-           aiSummary ? JSON.stringify(aiSummary) : null, date, aiSummary ? 1 : 0);
+      VALUES (?, ?, ?, ?, ?, ?, NULL, ?, datetime('now'), 0)
+    `).run(msg.id, subject, sender, snippet, JSON.stringify(extracted), category, date);
 
-    saved.push({ message_id: msg.id, subject, sender, extracted, category, ai_summary: aiSummary });
+    saved.push({ message_id: msg.id, subject, sender, extracted, category });
   }
 
   logger.info(`[Gmail] ${saved.length} email(s) enregistré(s)`);
   return { scanned: messages.length, saved: saved.length, items: saved };
+}
+
+function safeJsonParse(str, fallback) {
+  if (!str) return fallback;
+  try { return JSON.parse(str); } catch { return fallback; }
 }
 
 function guessCategoryFromEmail(text) {
@@ -362,7 +361,7 @@ function extractImageUrls(html, limit = 6) {
   return urls;
 }
 
-function downloadImage(url) {
+function downloadImage(url, maxRedirects = 5) {
   return new Promise((resolve) => {
     const mod = url.startsWith('https') ? https : http;
     const req = mod.get(url, {
@@ -370,12 +369,14 @@ function downloadImage(url) {
       timeout: 8000
     }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        return downloadImage(res.headers.location).then(resolve).catch(() => resolve(null));
+        res.resume();
+        if (maxRedirects <= 0) return resolve(null);
+        return downloadImage(res.headers.location, maxRedirects - 1).then(resolve).catch(() => resolve(null));
       }
-      if (res.statusCode !== 200) return resolve(null);
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
       const contentType = res.headers['content-type'] || 'image/jpeg';
       const mediaType = contentType.split(';')[0].trim();
-      if (!mediaType.startsWith('image/')) return resolve(null);
+      if (!mediaType.startsWith('image/')) { res.resume(); return resolve(null); }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => resolve({ data: Buffer.concat(chunks).toString('base64'), mediaType }));

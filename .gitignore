@@ -2,6 +2,8 @@ node_modules/
 .env
 .env.example
 server/db/database.sqlite
+server/db/database.sqlite-shm
+server/db/database.sqlite-wal
 server/gmail_token.json
 server/logs/
 *.log
