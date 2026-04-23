@@ -3,6 +3,7 @@
 const express  = require('express');
 const router   = express.Router();
 const axios    = require('axios');
+const https    = require('https');
 const { getDb } = require('../db/init');
 const cache    = require('../services/cache');
 const logger   = require('../services/logger');
@@ -10,7 +11,11 @@ const logger   = require('../services/logger');
 const POKEMON_BASE = 'https://api.pokemontcg.io/v2';
 const LORCANA_BASE = process.env.LORCANA_API_BASE || 'https://api.lorcast.com/v0';
 
-const http = axios.create({ timeout: 15000 });
+// keepAlive: false évite ECONNRESET quand le serveur distant ferme une connexion réutilisée
+const http = axios.create({
+  timeout: 20000,
+  httpsAgent: new https.Agent({ keepAlive: false })
+});
 
 const RETRYABLE = new Set(['ECONNRESET', 'ETIMEDOUT', 'ECONNABORTED', 'ENOTFOUND', 'EAI_AGAIN']);
 async function httpGetWithRetry(url, options = {}, retries = 2, delay = 800) {
