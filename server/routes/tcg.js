@@ -12,6 +12,23 @@ const LORCANA_BASE = process.env.LORCANA_API_BASE || 'https://api.lorcast.com/v0
 
 const http = axios.create({ timeout: 15000 });
 
+const RETRYABLE = new Set(['ECONNRESET', 'ETIMEDOUT', 'ECONNABORTED', 'ENOTFOUND', 'EAI_AGAIN']);
+async function httpGetWithRetry(url, options = {}, retries = 2, delay = 800) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await http.get(url, options);
+    } catch (err) {
+      const code = err.code || (err.cause && err.cause.code);
+      if (attempt < retries && (RETRYABLE.has(code) || err.response?.status >= 500)) {
+        logger.warn(`[TCG] Retry ${attempt + 1}/${retries} (${code}) — ${url}`);
+        await new Promise(r => setTimeout(r, delay * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 // ---------------------------------------------------------------
 // POKEMON
 // ---------------------------------------------------------------
@@ -25,7 +42,7 @@ router.get('/pokemon/sets', async (req, res) => {
   try {
     const headers = process.env.POKEMON_TCG_API_KEY
       ? { 'X-Api-Key': process.env.POKEMON_TCG_API_KEY } : {};
-    const { data } = await http.get(`${POKEMON_BASE}/sets?orderBy=-releaseDate`, { headers });
+    const { data } = await httpGetWithRetry(`${POKEMON_BASE}/sets?orderBy=-releaseDate`, { headers });
     const sets     = data.data || [];
     cache.set(cacheKey, sets, 3600);
     res.json(sets);
@@ -51,7 +68,7 @@ router.get('/pokemon/cards', async (req, res) => {
     const params = { page, pageSize: 36, orderBy: 'number' };
     if (q.trim()) params.q = q.trim();
 
-    const { data } = await http.get(`${POKEMON_BASE}/cards`, { headers, params });
+    const { data } = await httpGetWithRetry(`${POKEMON_BASE}/cards`, { headers, params });
     cache.set(cacheKey, data, 1800);
     res.json(data);
   } catch (err) {
@@ -185,7 +202,7 @@ router.get('/missing', async (req, res) => {
       // L'API Pokémon TCG limite pageSize à 250 — on pagine pour les grands sets
       let page = 1;
       while (true) {
-        const { data } = await http.get(`${POKEMON_BASE}/cards?q=set.id:${set}&pageSize=250&page=${page}`, { headers });
+        const { data } = await httpGetWithRetry(`${POKEMON_BASE}/cards?q=set.id:${set}&pageSize=250&page=${page}`, { headers });
         const cards = data.data || [];
         allCards = allCards.concat(cards.map(c => ({ id: c.id, name: c.name, number: c.number, rarity: c.rarity })));
         if (cards.length < 250) break;
