@@ -7,7 +7,7 @@ let chartHistory = null;
 
 function initBudgetMonth() {
   const input = document.getElementById('budgetMonth');
-  input.value = new Date().toISOString().slice(0, 7);
+  if (!input.value) input.value = new Date().toISOString().slice(0, 7);
 }
 
 async function loadBudget() {
@@ -288,6 +288,7 @@ function editCategoryLimit(category, currentLimit) {
 }
 
 document.getElementById('budgetMonth').addEventListener('change', loadBudget);
+document.getElementById('budgetMonth').addEventListener('input', loadBudget);
 
 window.addEventListener('pagechange', (e) => {
   if (e.detail === 'budget') { initBudgetMonth(); loadBudget(); }
