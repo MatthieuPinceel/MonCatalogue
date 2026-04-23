@@ -470,3 +470,15 @@ button { cursor: pointer; font-family: inherit; }
 .empty-state { text-align: center; padding: 48px 24px; color: var(--text-muted); }
 .empty-state .empty-icon { font-size: 3rem; margin-bottom: 12px; }
 .empty-state p { font-size: .9rem; }
+
+/* ─── Liens utiles ─── */
+.liens-grid { display: flex; flex-direction: column; gap: 28px; padding: 8px 0; }
+.liens-cat-title { font-size: .85rem; text-transform: uppercase; letter-spacing: .08em;
+                   color: var(--text-muted); margin-bottom: 12px; font-weight: 600; }
+.liens-cards { display: flex; flex-wrap: wrap; gap: 10px; }
+.lien-card { display: flex; align-items: center; gap: 9px; padding: 10px 16px;
+             background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+             color: var(--text); text-decoration: none; font-size: .88rem; font-weight: 500;
+             transition: border-color .15s, background .15s; white-space: nowrap; }
+.lien-card:hover { border-color: var(--accent); background: var(--bg-hover); color: var(--accent); }
+.lien-icon { font-size: 1.1rem; }

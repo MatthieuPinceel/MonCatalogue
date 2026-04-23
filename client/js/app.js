@@ -101,7 +101,7 @@ const Nav = {
     document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id === `page-${page}`));
     document.getElementById('pageTitle').textContent = {
       dashboard: 'Dashboard', promos: 'Offres', steam: 'Steam',
-      tcg: 'TCG', lego: 'Lego', budget: 'Budget', alerts: 'Alertes'
+      tcg: 'TCG', lego: 'Lego', budget: 'Budget', alerts: 'Alertes', liens: 'Liens utiles'
     }[page] || page;
     // Charger les données de la page
     window.dispatchEvent(new CustomEvent('pagechange', { detail: page }));
