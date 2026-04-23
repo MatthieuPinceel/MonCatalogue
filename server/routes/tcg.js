@@ -260,7 +260,7 @@ router.get('/wishlist/prices', (req, res) => {
         `SELECT source, title, price, original_price, discount_percent, url, image_url, scraped_at
          FROM promos
          WHERE (${placeholders}) AND category = 'TCG'
-         ORDER BY price ASC LIMIT 5`
+         ORDER BY price ASC`
       ).all(...likeArgs);
 
       return { ...item, offers };
