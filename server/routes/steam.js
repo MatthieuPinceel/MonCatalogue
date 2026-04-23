@@ -181,9 +181,25 @@ async function fetchSteamWishlist() {
   const withPage = getWithPage();
   if (!withPage) throw new Error('Chromium non disponible — puppeteer requis pour la wishlist Steam');
 
+  const loginSecure = process.env.STEAM_LOGIN_SECURE;
+  logger.info(`[Steam/Wishlist] cookie steamLoginSecure : ${loginSecure ? 'présent ✓' : 'absent — profil public ou wishlist privée'}`);
+
   // Chromium intercepte la réponse XHR /wishlistdata/ comme un vrai navigateur
   const allData = {};
   await withPage(async (page) => {
+    // Injecter le cookie de session si fourni dans .env
+    if (loginSecure) {
+      await page.setCookie({
+        name:   'steamLoginSecure',
+        value:  loginSecure,
+        domain: '.steampowered.com',
+        path:   '/',
+        secure: true,
+        httpOnly: true,
+      });
+      logger.info('[Steam/Wishlist] Cookie steamLoginSecure injecté dans Chromium');
+    }
+
     // Intercepter toutes les réponses /wishlistdata/
     page.on('response', async (response) => {
       if (!response.url().includes('wishlistdata')) return;
