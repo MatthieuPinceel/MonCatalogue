@@ -32,11 +32,15 @@ router.post('/purchases', (req, res) => {
     if (!CATEGORIES.includes(category)) {
       return res.status(400).json({ error: `Catégorie invalide. Valeurs : ${CATEGORIES.join(', ')}` });
     }
+    const parsed = parseFloat(amount);
+    if (isNaN(parsed) || parsed <= 0) {
+      return res.status(400).json({ error: 'Le montant doit être un nombre positif' });
+    }
     const date   = purchase_date || new Date().toISOString().slice(0, 10);
     const result = db.prepare(`
       INSERT INTO purchases (name, amount, category, store, purchase_date, notes, created_at)
       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-    `).run(name, parseFloat(amount), category, store, date, notes);
+    `).run(name, parsed, category, store || null, date, notes || null);
     res.json({ id: result.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -46,8 +50,9 @@ router.post('/purchases', (req, res) => {
 /** DELETE /api/budget/purchases/:id */
 router.delete('/purchases/:id', (req, res) => {
   try {
-    const db = getDb();
-    db.prepare('DELETE FROM purchases WHERE id = ?').run(req.params.id);
+    const db     = getDb();
+    const result = db.prepare('DELETE FROM purchases WHERE id = ?').run(req.params.id);
+    if (result.changes === 0) return res.status(404).json({ error: 'Achat non trouvé' });
     res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -112,11 +117,15 @@ router.put('/limits/:category', (req, res) => {
     if (!CATEGORIES.includes(cat)) {
       return res.status(400).json({ error: 'Catégorie invalide' });
     }
+    const parsed = parseFloat(monthly_limit);
+    if (isNaN(parsed) || parsed < 0) {
+      return res.status(400).json({ error: 'monthly_limit doit être un nombre >= 0' });
+    }
     db.prepare(`
       INSERT INTO budget_limits (category, monthly_limit, updated_at)
       VALUES (?, ?, datetime('now'))
       ON CONFLICT(category) DO UPDATE SET monthly_limit = excluded.monthly_limit, updated_at = excluded.updated_at
-    `).run(cat, parseFloat(monthly_limit));
+    `).run(cat, parsed);
     res.json({ updated: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

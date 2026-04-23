@@ -132,7 +132,7 @@ document.getElementById('addAlertBtn').addEventListener('click', () => {
     } catch (err) {
       toast(`Erreur : ${err.message}`, 'error');
     }
-  });
+  }, { once: true });
 });
 
 async function deleteAlert(id) {

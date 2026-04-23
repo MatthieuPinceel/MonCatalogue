@@ -40,8 +40,7 @@ Format: {"offres":[{"produit":"...","prix":"...","remise":"...","condition":"...
 const TOKEN_PATH    = path.resolve(process.env.GMAIL_TOKEN_PATH || 'server/gmail_token.json');
 const REDIRECT_URI  = process.env.GMAIL_REDIRECT_URI || 'http://localhost:3000/api/gmail/oauth2callback';
 const SCOPES        = [
-  'https://www.googleapis.com/auth/gmail.readonly',
-  'https://www.googleapis.com/auth/gmail.send'
+  'https://www.googleapis.com/auth/gmail.readonly'
 ];
 
 // Expéditeurs de newsletters promos à scanner
@@ -196,7 +195,7 @@ router.post('/scan', async (req, res) => {
   }
 
   try {
-    const days    = parseInt(req.body.days || req.query.days || 7, 10);
+    const days    = Math.min(Math.max(parseInt(req.body.days || req.query.days || 7, 10), 1), 30);
     const results = await scanPromoEmails(days);
     res.json(results);
   } catch (err) {
@@ -255,8 +254,8 @@ router.get('/promos', (req, res) => {
     res.json(rows.map(r => ({
       ...r,
       category:         r.category || guessCategoryFromEmail((r.subject || '') + ' ' + (r.snippet || '') + ' ' + (r.sender || '')),
-      extracted_promos: r.extracted_promos ? JSON.parse(r.extracted_promos) : [],
-      ai_summary:       r.ai_summary ? JSON.parse(r.ai_summary) : null,
+      extracted_promos: safeJsonParse(r.extracted_promos, []),
+      ai_summary:       safeJsonParse(r.ai_summary, null),
       gmail_link:       `https://mail.google.com/mail/u/0/#all/${r.message_id}`
     })));
   } catch (err) {
@@ -320,6 +319,11 @@ async function scanPromoEmails(days = 7) {
 
   logger.info(`[Gmail] ${saved.length} email(s) enregistré(s)`);
   return { scanned: messages.length, saved: saved.length, items: saved };
+}
+
+function safeJsonParse(str, fallback) {
+  if (!str) return fallback;
+  try { return JSON.parse(str); } catch { return fallback; }
 }
 
 function guessCategoryFromEmail(text) {

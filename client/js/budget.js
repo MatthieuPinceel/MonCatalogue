@@ -92,30 +92,24 @@ function renderBudgetHistoryChart(history, selectedMonth) {
   const cats   = [...new Set(history.map(r => r.category))];
   const COLORS = { TCG_Pokemon:'#6366f1', TCG_Lorcana:'#a855f7', Lego:'#f59e0b', JeuxVideo:'#22c55e', JeuxSociete:'#3b82f6' };
 
+  // Include selected month even if it has no expenses
+  const allMonths = months.includes(selectedMonth) ? months : [...months, selectedMonth].sort();
+
   const datasets = cats.map(cat => {
     const base = COLORS[cat] || '#64748b';
     return {
-      label: cat.replace('TCG_','TCG '),
-      data: months.map(m => history.find(r => r.month === m && r.category === cat)?.spent || 0),
-      backgroundColor: months.map(m => m === selectedMonth ? base : base + '55'),
-      borderWidth: months.map(m => m === selectedMonth ? 2 : 0),
-      borderColor: months.map(m => m === selectedMonth ? base : 'transparent'),
+      label: cat.replace('TCG_', 'TCG '),
+      data: allMonths.map(m => history.find(r => r.month === m && r.category === cat)?.spent || 0),
+      backgroundColor: allMonths.map(m => m === selectedMonth ? base : base + '55'),
       borderRadius: 4,
       stack: 'total'
     };
   });
 
-  // Ajouter le mois sélectionné même s'il n'a pas de dépenses
-  const allMonths = months.includes(selectedMonth) ? months : [...months, selectedMonth].sort();
-
   if (chartHistory) chartHistory.destroy();
   chartHistory = new Chart(ctx, {
     type: 'bar',
-    data: { labels: allMonths, datasets: datasets.map(d => ({
-      ...d,
-      data: allMonths.map(m => history.find(r => r.month === m && r.category === d.label.replace('TCG ','TCG_'))?.spent || 0),
-      backgroundColor: allMonths.map(m => m === selectedMonth ? (COLORS[d.label.replace('TCG ','TCG_')] || '#64748b') : (COLORS[d.label.replace('TCG ','TCG_')] || '#64748b') + '55'),
-    })) },
+    data: { labels: allMonths, datasets },
     options: {
       responsive: true,
       scales: {
@@ -195,7 +189,7 @@ document.getElementById('addPurchaseBtn').addEventListener('click', () => {
     } catch (err) {
       toast(`Erreur : ${err.message}`, 'error');
     }
-  });
+  }, { once: true });
 });
 
 async function deletePurchase(id) {
@@ -276,7 +270,7 @@ document.getElementById('editLimitsBtn').addEventListener('click', async () => {
     } catch (err) {
       toast(`Erreur : ${err.message}`, 'error');
     }
-  });
+  }, { once: true });
 });
 
 // ── Modifier un budget individuel ─────────────────────────────
@@ -306,7 +300,7 @@ function editCategoryLimit(category, currentLimit) {
     } catch (err) {
       toast(`Erreur : ${err.message}`, 'error');
     }
-  });
+  }, { once: true });
 }
 
 document.getElementById('budgetMonth').addEventListener('change', loadBudget);

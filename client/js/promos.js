@@ -340,6 +340,7 @@ async function loadPromoSources() {
   try {
     const sources = await API.get('/promos/sources');
     const sel     = document.getElementById('promoSourceFilter');
+    while (sel.options.length > 1) sel.remove(1);
     sources.forEach(s => {
       const opt = document.createElement('option');
       opt.value = s.source;
@@ -350,7 +351,7 @@ async function loadPromoSources() {
 }
 
 // ── Onglet Gmail : charger au clic ────────────────────────────
-document.querySelector('[data-tab="promos-gmail"]').addEventListener('click', loadGmailPromos);
+document.querySelector('[data-tab="promos-gmail"]')?.addEventListener('click', loadGmailPromos);
 
 // ── Promos Gmail ───────────────────────────────────────────────
 async function loadGmailPromos() {

@@ -310,4 +310,12 @@ async function fetchSteamWishlist() {
   return db.prepare('SELECT * FROM steam_wishlist ORDER BY name ASC').all();
 }
 
+async function _refresh() {
+  const [library, wishlist] = await Promise.all([fetchSteamLibrary(), fetchSteamWishlist()]);
+  cache.del('steam_library');
+  cache.del('steam_wishlist');
+  return { library: library.length, wishlist: wishlist.length };
+}
+
+router._refresh = _refresh;
 module.exports = router;

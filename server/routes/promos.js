@@ -16,6 +16,8 @@ router.get('/', (req, res) => {
   try {
     const db = getDb();
     const { source, category, item_type, sort, promo_only, q, limit = 50, offset = 0 } = req.query;
+    const safeLimit  = Math.min(Math.max(parseInt(limit,  10) || 50,  1), 200);
+    const safeOffset = Math.max(parseInt(offset, 10) || 0, 0);
 
     let sql    = 'SELECT * FROM promos WHERE 1=1';
     const args = [];
@@ -37,7 +39,7 @@ router.get('/', (req, res) => {
       date_desc:     'scraped_at DESC'
     };
     sql += ` ORDER BY ${ORDER[sort] || ORDER.date_desc} LIMIT ? OFFSET ?`;
-    args.push(parseInt(limit, 10), parseInt(offset, 10));
+    args.push(safeLimit, safeOffset);
 
     const rows = db.prepare(sql).all(...args);
 
@@ -261,9 +263,9 @@ function savePromos(items) {
             @url, @image_url, @category, @item_type, @scraped_at)
     ON CONFLICT(source, url) DO UPDATE SET
       title            = excluded.title,
-      price            = CASE WHEN excluded.price < promos.price THEN excluded.price ELSE promos.price END,
-      original_price   = CASE WHEN excluded.price < promos.price THEN excluded.original_price ELSE promos.original_price END,
-      discount_percent = CASE WHEN excluded.price < promos.price THEN excluded.discount_percent ELSE promos.discount_percent END,
+      price            = CASE WHEN promos.price IS NULL OR excluded.price < promos.price THEN excluded.price ELSE promos.price END,
+      original_price   = CASE WHEN promos.price IS NULL OR excluded.price < promos.price THEN excluded.original_price ELSE promos.original_price END,
+      discount_percent = CASE WHEN promos.price IS NULL OR excluded.price < promos.price THEN excluded.discount_percent ELSE promos.discount_percent END,
       image_url        = excluded.image_url,
       category         = excluded.category,
       item_type        = excluded.item_type,

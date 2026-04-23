@@ -23,8 +23,8 @@ Réponds UNIQUEMENT en JSON valide, format : {"results": [{"id": <number>, "is_p
 async function classifyItems(items) {
   if (!items.length) return [];
 
-  const userMsg = items.map((item, i) => {
-    const parts = [`[${i}] ID:${item.id} | Titre: ${item.title} | Source: ${item.source} | Prix: ${item.price}€`];
+  const userMsg = items.map(item => {
+    const parts = [`ID:${item.id} | Titre: ${item.title} | Source: ${item.source} | Prix: ${item.price}€`];
     if (item.original_price) parts.push(`| Prix original: ${item.original_price}€`);
     return parts.join(' ');
   }).join('\n');
@@ -36,45 +36,29 @@ async function classifyItems(items) {
       system: [
         { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } }
       ],
-      output_config: {
-        format: {
-          type: 'json_schema',
-          schema: {
-            type: 'object',
-            additionalProperties: false,
-            properties: {
-              results: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  additionalProperties: false,
-                  properties: {
-                    id:         { type: 'number' },
-                    is_promo:   { type: 'boolean' },
-                    confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
-                    reason:     { type: 'string' }
-                  },
-                  required: ['id', 'is_promo', 'confidence', 'reason']
-                }
-              }
-            },
-            required: ['results']
-          }
-        }
-      },
       messages: [{ role: 'user', content: userMsg }]
     });
 
     const text = response.content.find(b => b.type === 'text')?.text || '{"results":[]}';
-    const parsed = JSON.parse(text);
 
-    // Remappe les index 0-based vers les vrais IDs
-    return (parsed.results || []).map((r, i) => ({
-      id:         items[i]?.id ?? r.id,
-      is_promo:   r.is_promo,
-      confidence: r.confidence,
-      reason:     r.reason
-    }));
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (e) {
+      logger.error(`[AI Classifier] JSON invalide : ${text.slice(0, 200)}`);
+      return [];
+    }
+
+    // Utilise r.id (envoyé dans le prompt) pour le remappage correct
+    const idMap = Object.fromEntries(items.map(item => [item.id, item]));
+    return (parsed.results || [])
+      .filter(r => r.id != null && idMap[r.id])
+      .map(r => ({
+        id:         r.id,
+        is_promo:   r.is_promo,
+        confidence: r.confidence,
+        reason:     r.reason
+      }));
   } catch (err) {
     logger.error(`[AI Classifier] Erreur : ${err.message}`);
     throw err;
@@ -113,29 +97,16 @@ async function analyzeItem(item) {
     model: 'claude-haiku-4-5',
     max_tokens: 512,
     system: [{ type: 'text', text: ANALYZE_PROMPT, cache_control: { type: 'ephemeral' } }],
-    output_config: {
-      format: {
-        type: 'json_schema',
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          properties: {
-            type_promo:           { type: 'string', enum: ['remise_pourcentage', 'prix_barre', 'bundle', 'solde', 'destockage', 'prix_normal', 'inconnu'] },
-            description:          { type: 'string' },
-            economie_euros:       { type: ['number', 'null'] },
-            economie_pourcentage: { type: ['number', 'null'] },
-            conditions:           { type: ['string', 'null'] },
-            est_promo:            { type: 'boolean' }
-          },
-          required: ['type_promo', 'description', 'economie_euros', 'economie_pourcentage', 'conditions', 'est_promo']
-        }
-      }
-    },
     messages: [{ role: 'user', content: lines.join('\n') }]
   });
 
   const text = response.content.find(b => b.type === 'text')?.text || '{}';
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    logger.error(`[AI Classifier/analyze] JSON invalide : ${text.slice(0, 200)}`);
+    return { type_promo: 'inconnu', description: item.title, economie_euros: null, economie_pourcentage: null, conditions: null, est_promo: false };
+  }
 }
 
 module.exports = { classifyItems, analyzeItem };

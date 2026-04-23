@@ -24,7 +24,7 @@ router.get('/lookup/:setNumber', async (req, res) => {
     res.json({
       set_number:   data.set_num.replace(/-\d+$/, ''),
       name:         data.name,
-      theme:        data.theme_id ? null : null, // résolu séparément
+      theme:        null,
       pieces:       data.num_parts,
       retail_price: data.retail_price || null,
       image_url:    data.set_img_url,
@@ -90,12 +90,12 @@ router.post('/collection', (req, res) => {
 router.put('/collection/:id', (req, res) => {
   try {
     const db = getDb();
-    const { name, theme, pieces, price_paid, retail_price, status, notes } = req.body;
+    const { name, theme, pieces, price_paid, retail_price, status, notes, image_url } = req.body;
     db.prepare(`
       UPDATE lego_collection
-      SET name=?, theme=?, pieces=?, price_paid=?, retail_price=?, status=?, notes=?
+      SET name=?, theme=?, pieces=?, price_paid=?, retail_price=?, status=?, notes=?, image_url=?
       WHERE id=?
-    `).run(name, theme, pieces, price_paid, retail_price, status, notes, req.params.id);
+    `).run(name, theme, pieces, price_paid, retail_price, status, notes, image_url ?? null, req.params.id);
     res.json({ updated: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -175,7 +175,7 @@ function showLegoModal(existing = null) {
     } catch (err) {
       toast(`Erreur : ${err.message}`, 'error');
     }
-  });
+  }, { once: true });
 }
 
 async function lookupLegoSet() {

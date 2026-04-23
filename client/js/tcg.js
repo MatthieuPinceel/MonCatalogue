@@ -189,7 +189,7 @@ document.getElementById('searchCardBtn').addEventListener('click', async () => {
     }
 
     container.innerHTML = cards.slice(0, 40).map(c => `
-      <div class="tcg-card" onclick="quickAddCard('${escHtml(game)}','${escHtml(c.id)}','${escHtml(c.name)}','${escHtml(c.set||'')}','${escHtml(c.rarity||'')}')">
+      <div class="tcg-card" onclick="quickAddCard('${escHtml(game)}','${escHtml(c.id).replace(/'/g,"\\'")}','${escHtml(c.name).replace(/'/g,"\\'")}','${escHtml(c.set||'').replace(/'/g,"\\'")}','${escHtml(c.rarity||'').replace(/'/g,"\\'")}')">
         ${c.image ? `<img src="${escHtml(c.image)}" alt="${escHtml(c.name)}" loading="lazy" />` : '<div style="height:120px;background:var(--bg-hover);display:flex;align-items:center;justify-content:center;font-size:2rem">🃏</div>'}
         <div class="tcg-card-body">
           <div class="tcg-card-name">${escHtml(c.name)}</div>
@@ -408,7 +408,7 @@ function showWishlistModal(existing = null) {
     } catch (err) {
       toast(`Erreur : ${err.message}`, 'error');
     }
-  });
+  }, { once: true });
 }
 
 async function editWishlistItem(id) {
