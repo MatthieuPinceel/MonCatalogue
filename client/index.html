@@ -312,7 +312,10 @@
       <div id="budgetTotal" style="margin-bottom:1rem"></div>
       <div class="budget-grid" id="budgetGrid"></div>
       <div class="chart-card" style="margin-top:1.5rem">
-        <h3 class="chart-title">Évolution mensuelle</h3>
+        <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:.5rem">
+          <h3 class="chart-title" style="margin:0">Évolution mensuelle</h3>
+          <span id="chartBudgetSubtitle" style="font-size:.75rem;color:var(--text-muted)">Historique 12 mois</span>
+        </div>
         <canvas id="chartBudgetHistory"></canvas>
       </div>
       <div class="card" style="margin-top:1.5rem">
