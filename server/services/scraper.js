@@ -822,6 +822,122 @@ async function scrapeCultura() {
 }
 
 // ---------------------------------------------------------------
+// SHOPIFY — API JSON publique /products.json (sans Chromium)
+// ---------------------------------------------------------------
+async function scrapeShopifyJson(host, keywords, sourceName, category = 'TCG', itemType = 'catalog', maxPages = 2) {
+  const results = [];
+  const kw = keywords.map(k => k.toLowerCase());
+  for (let page = 1; page <= maxPages; page++) {
+    try {
+      await sleep(DELAY);
+      const url = `https://${host}/products.json?limit=250&page=${page}`;
+      const { data } = await makeHttp(`https://${host}/`).get(url, { headers: { Accept: 'application/json' } });
+      const products = data.products || [];
+      if (!products.length) break;
+      for (const p of products) {
+        const title = p.title || '';
+        if (kw.length && !kw.some(k => title.toLowerCase().includes(k))) continue;
+        const variant = p.variants?.[0];
+        if (!variant) continue;
+        const price = normalizePrice(String(variant.price), 1500);
+        if (!price) continue;
+        const compareAt = variant.compare_at_price ? normalizePrice(String(variant.compare_at_price), 1500) : null;
+        results.push({
+          source: sourceName, title, price,
+          original_price:   compareAt && compareAt > price ? compareAt : null,
+          discount_percent: calcDiscount(compareAt, price),
+          url:        `https://${host}/products/${p.handle}`,
+          image_url:  p.images?.[0]?.src || null,
+          category:   guessCategoryFromTitle(title) || category,
+          item_type:  itemType,
+          scraped_at: new Date().toISOString()
+        });
+      }
+      if (products.length < 250) break;
+    } catch (err) {
+      logger.error(`[Scraper/${sourceName}] erreur page ${page} : ${err.message}`);
+      break;
+    }
+  }
+  logger.info(`[Scraper/${sourceName}] (${itemType}) — ${results.length} articles`);
+  return results;
+}
+
+// ---------------------------------------------------------------
+// PRESTASHOP générique — Cheerio (boutiques sans WAF agressif)
+// ---------------------------------------------------------------
+async function scrapePrestaPage(url, sourceName, host, category = 'TCG', itemType = 'catalog') {
+  try {
+    await sleep(DELAY);
+    const { data } = await makeHttp(`https://${host}/`).get(url);
+    const $ = cheerio.load(data);
+    const results = [];
+    $('[data-id-product], article.product-miniature, .js-product-miniature').each((_, el) => {
+      const title = $(el).find('.product-title a, h2, h3').first().text().trim()
+                 || $(el).find('a[title]').first().attr('title') || '';
+      if (!title || title.length < 3) return;
+      const priceOld = normalizePrice($(el).find('.regular-price, s, del').first().text(), 1500);
+      const priceNew = normalizePrice($(el).find('.price').not('.regular-price').first().text(), 1500);
+      const price = priceNew || priceOld;
+      if (!price) return;
+      const href = $(el).find('a').first().attr('href') || '';
+      results.push({
+        source: sourceName, title, price,
+        original_price:   priceOld && priceNew && priceOld > priceNew ? priceOld : null,
+        discount_percent: calcDiscount(priceOld, priceNew),
+        url:        href.startsWith('http') ? href : `https://${host}${href}`,
+        image_url:  $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
+        category:   guessCategoryFromTitle(title) || category,
+        item_type:  itemType,
+        scraped_at: new Date().toISOString()
+      });
+    });
+    logger.info(`[Scraper/${sourceName}] (${itemType}) — ${results.length} articles sur ${url}`);
+    return results;
+  } catch (err) {
+    logger.error(`[Scraper/${sourceName}] erreur sur ${url} : ${err.message}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------
+// WOOCOMMERCE générique — Cheerio
+// ---------------------------------------------------------------
+async function scrapeWooPage(url, sourceName, host, category = 'TCG', itemType = 'catalog') {
+  try {
+    await sleep(DELAY);
+    const { data } = await makeHttp(`https://${host}/`).get(url);
+    const $ = cheerio.load(data);
+    const results = [];
+    $('li.product, .product-type-simple, .product-type-variable').each((_, el) => {
+      const title = $(el).find('.woocommerce-loop-product__title, h2, h3').first().text().trim() || '';
+      if (!title || title.length < 3) return;
+      const priceOld = normalizePrice($(el).find('.price del bdi, .price del').first().text(), 1500);
+      const priceNew = normalizePrice($(el).find('.price ins bdi, .price ins').first().text()
+                    || $(el).find('.price bdi, .amount').first().text(), 1500);
+      const price = priceNew || priceOld;
+      if (!price) return;
+      const href = $(el).find('a').first().attr('href') || '';
+      results.push({
+        source: sourceName, title, price,
+        original_price:   priceOld && priceNew && priceOld > priceNew ? priceOld : null,
+        discount_percent: calcDiscount(priceOld, priceNew),
+        url:        href.startsWith('http') ? href : `https://${host}${href}`,
+        image_url:  $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
+        category:   guessCategoryFromTitle(title) || category,
+        item_type:  itemType,
+        scraped_at: new Date().toISOString()
+      });
+    });
+    logger.info(`[Scraper/${sourceName}] (${itemType}) — ${results.length} articles sur ${url}`);
+    return results;
+  } catch (err) {
+    logger.error(`[Scraper/${sourceName}] erreur sur ${url} : ${err.message}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------
 // Utilitaires
 // ---------------------------------------------------------------
 const CATEGORY_PATTERNS = [
@@ -932,6 +1048,37 @@ const CATALOG_SCRAPERS = {
   // Pages éditoriales → pas de pagination
   'bcd-tcg-global':      () => scrapeBcdJeuxPage('https://www.bcd-jeux.fr/page/133-jcc-jce-cartes-a-collectionner',           'TCG',        'catalog'),
   'bcd-jds':             () => scrapeBcdJeuxPage('https://www.bcd-jeux.fr/page/57-les-jeux-de-societe-pour-toute-la-famille',  'JeuxSociete','catalog'),
+
+  // ── Boutiques spécialisées TCG ─────────────────────────────────
+  // Shopify — API /products.json publique, pas de Chromium
+  'lorenzone-tcg':       () => scrapeShopifyJson('www.lorenzone.fr',          ['pokemon','lorcana','magic'], 'lorenzone',    'TCG', 'catalog'),
+  'relictcg-tcg':        () => scrapeShopifyJson('www.relictcg.com',           ['pokemon','lorcana','magic'], 'relictcg',     'TCG', 'catalog'),
+  'kairyu-pokemon':      () => scrapeShopifyJson('www.kairyu.fr',              ['pokemon'],                   'kairyu',       'TCG', 'catalog'),
+  'pokestation-pokemon': () => scrapeShopifyJson('www.pokestation.fr',         ['pokemon'],                   'pokestation',  'TCG', 'catalog'),
+  'pokemoms-tcg':        () => scrapeShopifyJson('www.pokemoms.fr',            ['pokemon','lorcana'],         'pokemoms',     'TCG', 'catalog'),
+  'hikaru-tcg':          () => scrapeShopifyJson('www.hikarudistribution.com', ['pokemon'],                   'hikaru',       'TCG', 'catalog'),
+  'dracaugames-tcg':     () => scrapeShopifyJson('www.dracaugames.com',        ['pokemon','lorcana','magic'], 'dracaugames',  'TCG', 'catalog'),
+  'pokuji-tcg':          () => scrapeShopifyJson('www.pokuji.fr',              ['pokemon','lorcana','magic'], 'pokuji',       'TCG', 'catalog'),
+  // PrestaShop — Cheerio
+  'ultrajeux-tcg':       async () => (await Promise.all([
+    scrapePrestaPage('https://www.ultrajeux.com/fr/recherche?s=pokemon', 'ultrajeux', 'www.ultrajeux.com'),
+    scrapePrestaPage('https://www.ultrajeux.com/fr/recherche?s=lorcana', 'ultrajeux', 'www.ultrajeux.com'),
+    scrapePrestaPage('https://www.ultrajeux.com/fr/recherche?s=magic',   'ultrajeux', 'www.ultrajeux.com'),
+  ])).flat(),
+  'destocktcg-tcg':      async () => (await Promise.all([
+    scrapePrestaPage('https://www.destocktcg.fr/fr/recherche?s=pokemon', 'destocktcg', 'www.destocktcg.fr'),
+    scrapePrestaPage('https://www.destocktcg.fr/fr/recherche?s=lorcana', 'destocktcg', 'www.destocktcg.fr'),
+    scrapePrestaPage('https://www.destocktcg.fr/fr/recherche?s=magic',   'destocktcg', 'www.destocktcg.fr'),
+  ])).flat(),
+  'ludiworld-tcg':       async () => (await Promise.all([
+    scrapePrestaPage('https://www.ludiworld.com/fr/recherche?s=pokemon', 'ludiworld', 'www.ludiworld.com'),
+    scrapePrestaPage('https://www.ludiworld.com/fr/recherche?s=lorcana', 'ludiworld', 'www.ludiworld.com'),
+  ])).flat(),
+  // WordPress/WooCommerce — Cheerio
+  'lecoindesbarons-tcg': async () => (await Promise.all([
+    scrapeWooPage('https://www.lecoindesbarons.com/?s=pokemon&post_type=product', 'lecoindesbarons', 'www.lecoindesbarons.com'),
+    scrapeWooPage('https://www.lecoindesbarons.com/?s=lorcana&post_type=product', 'lecoindesbarons', 'www.lecoindesbarons.com'),
+  ])).flat(),
 };
 
 async function scrapeAll(only) {
