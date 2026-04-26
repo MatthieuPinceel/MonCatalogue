@@ -30,12 +30,14 @@ async function pokemonFetch(path, extraHeaders = {}, retries = 2) {
       return await res.json();
     } catch (err) {
       clearTimeout(timer);
+      const cause = err.cause?.code || err.cause?.message || err.cause?.name || '';
       if (attempt < retries) {
-        logger.warn(`[TCG/Pokemon] Retry ${attempt + 1}/${retries} — ${err.message}`);
+        logger.warn(`[TCG/Pokemon] Retry ${attempt + 1}/${retries} — ${err.message}${cause ? ` (${cause})` : ''}`);
         await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
         continue;
       }
-      throw err;
+      const detail = cause ? `${err.message} (cause: ${cause})` : err.message;
+      throw new Error(detail);
     } finally {
       clearTimeout(timer);
     }
