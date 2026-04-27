@@ -1,8 +1,8 @@
 'use strict';
 
 const { createLogger, format, transports } = require('winston');
-const path = require('path');
-const fs   = require('fs');
+const path = require('node:path');
+const fs   = require('node:fs');
 
 const LOG_FILE  = process.env.LOG_FILE  || 'server/logs/app.log';
 const LOG_LEVEL = process.env.LOG_LEVEL || 'info';
