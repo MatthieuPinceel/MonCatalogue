@@ -1,10 +1,11 @@
 'use strict';
 
-require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
+require('dotenv').config({ path: require('node:path').resolve(__dirname, '../../.env') });
 const Database = require('better-sqlite3');
-const path     = require('path');
-const fs       = require('fs');
+const path     = require('node:path');
+const fs       = require('node:fs');
 const SCHEMA   = require('./schema');
+const logger   = require('../services/logger');
 
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'database.sqlite');
 
@@ -24,9 +25,9 @@ function initDb() {
   const db = getDb();
   db.exec(SCHEMA);
   // Migrations non destructives
-  try { db.exec(`ALTER TABLE gmail_promos ADD COLUMN category TEXT`);   } catch (e) {}
-  try { db.exec(`ALTER TABLE gmail_promos ADD COLUMN ai_summary TEXT`); } catch (e) {}
-  try { db.exec(`ALTER TABLE promos ADD COLUMN item_type TEXT DEFAULT 'promo'`); } catch (e) {}
+  try { db.exec(`ALTER TABLE gmail_promos ADD COLUMN category TEXT`);   } catch (e) { logger.debug(`[DB] ${e.message}`); }
+  try { db.exec(`ALTER TABLE gmail_promos ADD COLUMN ai_summary TEXT`); } catch (e) { logger.debug(`[DB] ${e.message}`); }
+  try { db.exec(`ALTER TABLE promos ADD COLUMN item_type TEXT DEFAULT 'promo'`); } catch (e) { logger.debug(`[DB] ${e.message}`); }
   // tcg_wishlist est définie dans schema.js — pas de doublon ici
   console.log(`[DB] Base initialisée : ${DB_PATH}`);
   return db;
