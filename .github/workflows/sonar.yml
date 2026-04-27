@@ -35,6 +35,8 @@ jobs:
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
+        with:
+          args: -Dsonar.branch.name=main
         env:
           SONAR_TOKEN: ${{ secrets.SONARQUBE }}
           SONAR_HOST_URL: https://sonarcloud.io
@@ -53,10 +55,9 @@ jobs:
           # Attendre que SonarCloud indexe les resultats
           sleep 120
 
-          # organization= et branch= obligatoires sur SonarCloud
-          BRANCH_ENC=$(python3 -c "import urllib.parse,os; print(urllib.parse.quote(os.environ['BRANCH_NAME'],safe='/'))")
+          # Interroge la branche main (le scan y est toujours envoyé)
           curl -s -u "${SONAR_TOKEN}:" \
-            "https://sonarcloud.io/api/issues/search?organization=matthieupinceel&componentKeys=matthieupinceel_moncatalogue&branch=${BRANCH_ENC}&resolved=false&ps=100&s=SEVERITY&asc=false" \
+            "https://sonarcloud.io/api/issues/search?organization=matthieupinceel&componentKeys=matthieupinceel_moncatalogue&resolved=false&ps=100&s=SEVERITY&asc=false" \
             > /tmp/sonar_issues.json
 
           python3 -c "import json; d=json.load(open('/tmp/sonar_issues.json')); print('Total issues:', d.get('total',0), '| Errors:', d.get('errors',[]))"
