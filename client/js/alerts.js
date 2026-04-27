@@ -44,7 +44,10 @@ async function loadAnthropicUsage() {
   try {
     const data = await API.get('/alerts/usage');
     const pct  = Math.min(data.percent_used, 100);
-    const color = pct > 80 ? 'var(--danger)' : pct > 60 ? 'var(--warning)' : 'var(--success)';
+    let color;
+    if (pct > 80) color = 'var(--danger)';
+    else if (pct > 60) color = 'var(--warning)';
+    else color = 'var(--success)';
 
     document.getElementById('anthropicUsage').innerHTML = `
       <div class="stat-row" style="margin-bottom:12px">
