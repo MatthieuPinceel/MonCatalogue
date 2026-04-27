@@ -99,7 +99,7 @@ function buildPriceAlertHtml({ itemName, source, thresholdPrice, currentPrice, u
 function buildWeeklySummaryHtml({ promos, priceChanges, upcomingReleases, budgetSummary, aiSummary }) {
   const promoList = (promos || []).slice(0, 10).map(p =>
     `<li><strong>${p.title}</strong> — ${p.price ? p.price.toFixed(2) + ' €' : 'prix N/A'}
-     ${p.discount_percent ? `(-${p.discount_percent}%)` : ''} (${p.source})</li>`
+     ${p.discount_percent ? '(-' + p.discount_percent + '%)' : ''} (${p.source})</li>`
   ).join('');
 
   return `
