@@ -62,7 +62,7 @@ async function getPokemonCardPrice(cardName, setName) {
         items.push({
           name,
           setName: set,
-          priceFrom: parseFloat(priceFrom) || null,
+          priceFrom: Number.parseFloat(priceFrom) || null,
           url: BASE_URL + ($(el).find('.col-title a').attr('href') || '')
         });
       }
@@ -112,7 +112,7 @@ async function getLorcanaCardPrice(cardName) {
       if (name) {
         items.push({
           name,
-          priceFrom: parseFloat(priceFrom) || null,
+          priceFrom: Number.parseFloat(priceFrom) || null,
           url: BASE_URL + ($(el).find('.col-title a').attr('href') || '')
         });
       }
