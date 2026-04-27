@@ -962,8 +962,8 @@ const SCRAPERS = {
   kingjouet:              scrapeKingJouet,
   'kingjouet-promo-lego': () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/promotions/marque-lego/page1.htm', 'Lego', 'promo'),
   'kingjouet-promo-js':   () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/jeux-de-societe-promotion/page1.htm', 'JeuxSociete', 'promo'),
-  // Micromania
-  micromania:             scrapeMicromania,
+  // Micromania — désactivé (ECONNRESET, site bloque les scrapers)
+  // micromania:          scrapeMicromania,
   // Smyths — pages promos confirmées
   'smyths-promo':         () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/mega-promos/c/mega-promos',                    null,          'promo'),
   'smyths-soldes':        () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/soldes/c/soldes',                               null,          'promo'),
@@ -1007,9 +1007,9 @@ const CATALOG_SCRAPERS = {
   'philibert-lorcana':   () => scrapePhilibertPage('https://www.philibertnet.com/fr/15880-lorcana',      'TCG',        'catalog'),
   'philibert-tcg':       () => scrapePhilibertPage('https://www.philibertnet.com/fr/119-jeux-de-cartes', 'TCG',        'catalog'),
   'philibert-js':        () => scrapePhilibertPage('https://www.philibertnet.com/fr/50-jeux-de-societe', 'JeuxSociete','catalog'),
-  // Micromania — catalogue TCG
-  'micromania-pokemon':  () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes?marque=pokemon', 'TCG', 'catalog'),
-  'micromania-lorcana':  () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes?marque=lorcana', 'TCG', 'catalog'),
+  // Micromania — désactivé (ECONNRESET, site bloque les scrapers)
+  // 'micromania-pokemon': () => scrapeMicromaniaPage(...),
+  // 'micromania-lorcana': () => scrapeMicromaniaPage(...),
   // Fnac — catalogue Chromium
   'fnac-pokemon-cat':    () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4', 'TCG',  'catalog'),
   'fnac-lorcana-cat':    () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4', 'TCG',  'catalog'),
@@ -1037,30 +1037,14 @@ const CATALOG_SCRAPERS = {
   'relictcg-tcg':        () => scrapeShopifyJson('www.relictcg.com',           ['pokemon','lorcana','magic'], 'relictcg',     'TCG', 'catalog'),
   'kairyu-pokemon':      () => scrapeShopifyJson('www.kairyu.fr',              ['pokemon'],                   'kairyu',       'TCG', 'catalog'),
   'pokestation-pokemon': () => scrapeShopifyJson('www.pokestation.fr',         ['pokemon'],                   'pokestation',  'TCG', 'catalog'),
-  'pokemoms-tcg':        () => scrapeShopifyJson('www.pokemoms.fr',            ['pokemon','lorcana'],         'pokemoms',     'TCG', 'catalog'),
+  // pokemoms-tcg — désactivé (Shopify 404)
+  // pokuji-tcg    — désactivé (Shopify 404)
+  // ultrajeux-tcg — désactivé (PrestaShop 404)
+  // destocktcg-tcg — désactivé (PrestaShop 404)
+  // ludiworld-tcg — désactivé (PrestaShop 404)
   'hikaru-tcg':          () => scrapeShopifyJson('www.hikarudistribution.com', ['pokemon'],                   'hikaru',       'TCG', 'catalog'),
   'dracaugames-tcg':     () => scrapeShopifyJson('www.dracaugames.com',        ['pokemon','lorcana','magic'], 'dracaugames',  'TCG', 'catalog'),
-  'pokuji-tcg':          () => scrapeShopifyJson('www.pokuji.fr',              ['pokemon','lorcana','magic'], 'pokuji',       'TCG', 'catalog'),
-  // PrestaShop — Cheerio
-  'ultrajeux-tcg':       async () => (await Promise.all([
-    scrapePrestaPage('https://www.ultrajeux.com/fr/recherche?s=pokemon', 'ultrajeux', 'www.ultrajeux.com'),
-    scrapePrestaPage('https://www.ultrajeux.com/fr/recherche?s=lorcana', 'ultrajeux', 'www.ultrajeux.com'),
-    scrapePrestaPage('https://www.ultrajeux.com/fr/recherche?s=magic',   'ultrajeux', 'www.ultrajeux.com'),
-  ])).flat(),
-  'destocktcg-tcg':      async () => (await Promise.all([
-    scrapePrestaPage('https://www.destocktcg.fr/fr/recherche?s=pokemon', 'destocktcg', 'www.destocktcg.fr'),
-    scrapePrestaPage('https://www.destocktcg.fr/fr/recherche?s=lorcana', 'destocktcg', 'www.destocktcg.fr'),
-    scrapePrestaPage('https://www.destocktcg.fr/fr/recherche?s=magic',   'destocktcg', 'www.destocktcg.fr'),
-  ])).flat(),
-  'ludiworld-tcg':       async () => (await Promise.all([
-    scrapePrestaPage('https://www.ludiworld.com/fr/recherche?s=pokemon', 'ludiworld', 'www.ludiworld.com'),
-    scrapePrestaPage('https://www.ludiworld.com/fr/recherche?s=lorcana', 'ludiworld', 'www.ludiworld.com'),
-  ])).flat(),
-  // WordPress/WooCommerce — Cheerio
-  'lecoindesbarons-tcg': async () => (await Promise.all([
-    scrapeWooPage('https://www.lecoindesbarons.com/?s=pokemon&post_type=product', 'lecoindesbarons', 'www.lecoindesbarons.com'),
-    scrapeWooPage('https://www.lecoindesbarons.com/?s=lorcana&post_type=product', 'lecoindesbarons', 'www.lecoindesbarons.com'),
-  ])).flat(),
+  // lecoindesbarons-tcg — désactivé (WooCommerce search retourne 0 résultats)
 };
 
 async function scrapeAll(only) {
