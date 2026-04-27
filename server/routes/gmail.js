@@ -18,10 +18,10 @@
 
 const express = require('express');
 const router  = require('express').Router();
-const fs      = require('fs');
-const path    = require('path');
-const https   = require('https');
-const http    = require('http');
+const fs      = require('node:fs');
+const path    = require('node:path');
+const https   = require('node:https');
+const http    = require('node:http');
 const { google } = require('googleapis');
 const { getDb }  = require('../db/init');
 const logger  = require('../services/logger');
@@ -112,11 +112,11 @@ router.get('/status', (req, res) => {
     has_token: hasToken,
     active,
     user: process.env.GMAIL_USER,
-    message: !configured
-      ? 'GMAIL_CLIENT_ID et GMAIL_CLIENT_SECRET non configurés dans .env'
-      : !hasToken
-      ? 'Token absent — visitez /api/gmail/auth pour autoriser l\'accès'
-      : 'Gmail connecté'
+    message: (() => {
+      if (configured && hasToken) return 'Gmail connecté';
+      if (configured) return 'Token absent — visitez /api/gmail/auth pour autoriser l\'accès';
+      return 'GMAIL_CLIENT_ID et GMAIL_CLIENT_SECRET non configurés dans .env';
+    })()
   });
 });
 
@@ -156,8 +156,8 @@ router.get('/oauth2callback', async (req, res) => {
   const { code, error } = req.query;
 
   if (error) {
-    logger.error(`[Gmail] OAuth2 refusé : ${error}`);
-    return res.status(400).send(`Autorisation refusée : ${error}`);
+    logger.warn(`[Gmail] OAuth2 callback error param: ${error}`);
+    return res.status(400).send('Autorisation refusée');
   }
   if (!code) {
     return res.status(400).send('Code manquant');
@@ -195,7 +195,7 @@ router.post('/scan', async (req, res) => {
   }
 
   try {
-    const days    = Math.min(Math.max(parseInt(req.body.days || req.query.days || 7, 10), 1), 30);
+    const days    = Math.min(Math.max(Number.parseInt(req.body.days || req.query.days || 7, 10), 1), 30);
     const results = await scanPromoEmails(days);
     res.json(results);
   } catch (err) {
@@ -422,8 +422,8 @@ function extractPromosFromText(text) {
     if (!seen.has(key)) { seen.add(key); promos.push(p); }
   };
 
-  // "-30%", "jusqu'à -70%", "-50% à -70%"
-  const pctPattern = /(?:jusqu['\u2019]?[àa]?\s*)?[–\-]\s*(\d{1,2})\s*%(?:\s*[àa]\s*[–\-]?\s*(\d{1,2})\s*%)?/gi;
+  // "-30%", "-50% à -70%"
+  const pctPattern = /[-–]\s*(\d{1,2})\s*%(?:\s*[àa]\s*[-–]?\s*(\d{1,2})\s*%)?/gi;
   // "X€ au lieu de Y€"
   const pricePattern = /(\d+[,.]?\d*)\s*€\s*(?:au\s*lieu\s*de|instead of)\s*(\d+[,.]?\d*)\s*€/gi;
   // Veepee brand sales : "Vente [Brand]" or "Nouvelle vente :"
@@ -431,10 +431,10 @@ function extractPromosFromText(text) {
 
   let m;
   while ((m = pctPattern.exec(text)) !== null) {
-    add({ type: 'discount_pct', min: parseInt(m[1], 10), max: m[2] ? parseInt(m[2], 10) : null });
+    add({ type: 'discount_pct', min: Number.parseInt(m[1], 10), max: m[2] ? Number.parseInt(m[2], 10) : null });
   }
   while ((m = pricePattern.exec(text)) !== null) {
-    add({ type: 'price', sale: parseFloat(m[1].replace(',','.')), original: parseFloat(m[2].replace(',','.')) });
+    add({ type: 'price', sale: Number.parseFloat(m[1].replace(',','.')), original: Number.parseFloat(m[2].replace(',','.')) });
   }
   while ((m = veepeePattern.exec(text)) !== null) {
     add({ type: 'brand_sale', brand: m[1].trim() });

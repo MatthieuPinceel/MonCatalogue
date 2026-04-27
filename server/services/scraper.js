@@ -23,7 +23,7 @@ async function withChromiumPage(fn) {
   return withPage(fn);
 }
 
-const DELAY = parseInt(process.env.SCRAPE_DELAY_MS || '1500', 10);
+const DELAY = Number.parseInt(process.env.SCRAPE_DELAY_MS || '1500', 10);
 const UA    = process.env.SCRAPE_USER_AGENT ||
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -52,9 +52,9 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function normalizePrice(str, maxPrice = 500) {
   if (!str) return null;
-  const cleaned = String(str).replace(/\s/g, '').replace(/[^\d,\.]/g, '').replace(',', '.').trim();
-  const val = parseFloat(cleaned);
-  return isNaN(val) || val <= 0 || val > maxPrice ? null : val;
+  const cleaned = String(str).replace(/\s/g, '').replaceAll(/[^\d,.]/g, '').replace(',', '.').trim();
+  const val = Number.parseFloat(cleaned);
+  return Number.isNaN(val) || val <= 0 || val > maxPrice ? null : val;
 }
 
 function calcDiscount(original, sale) {
@@ -348,8 +348,8 @@ async function scrapeIdealoPage(url, category, itemType = 'catalog') {
 // DEALABS — flux RSS (pas de scraping, XML public)
 // ---------------------------------------------------------------
 function extractPricesFromText(text) {
-  const matches = [...text.matchAll(/(\d+[,\.]\d{1,2})\s*€/g)]
-    .map(m => parseFloat(m[1].replace(',', '.')))
+  const matches = [...text.matchAll(/(\d+[,.]\d{1,2})\s*€/g)]
+    .map(m => Number.parseFloat(m[1].replace(',', '.')))
     .filter(v => v > 0 && v < 1500);
   if (!matches.length) return { price: null, original_price: null };
   if (matches.length === 1) return { price: matches[0], original_price: null };
@@ -535,7 +535,7 @@ async function scrapeBcdJeuxPage(url, category, itemType = 'catalog') {
         let discountPct = calcDiscount(priceOld, priceNew);
         if (!discountPct && item.discount) {
           const m = item.discount.match(/(\d+)\s*%/);
-          if (m) discountPct = parseInt(m[1], 10);
+          if (m) discountPct = Number.parseInt(m[1], 10);
         }
 
         return {
@@ -822,6 +822,153 @@ async function scrapeCultura() {
 }
 
 // ---------------------------------------------------------------
+// SHOPIFY — API JSON publique /products.json (sans Chromium)
+// ---------------------------------------------------------------
+async function scrapeShopifyJson(host, keywords, sourceName, category = 'TCG', itemType = 'catalog', maxPages = 2, collectionPath = null) {
+  const results = [];
+  const kw = keywords.map(k => k.toLowerCase());
+  for (let page = 1; page <= maxPages; page++) {
+    try {
+      await sleep(DELAY);
+      const base = collectionPath
+        ? `https://${host}/${collectionPath}/products.json`
+        : `https://${host}/products.json`;
+      const url = `${base}?limit=250&page=${page}`;
+      const { data } = await makeHttp(`https://${host}/`).get(url, { headers: { Accept: 'application/json' } });
+      const products = data.products || [];
+      if (!products.length) break;
+      for (const p of products) {
+        const title = p.title || '';
+        if (kw.length && !kw.some(k => title.toLowerCase().includes(k))) continue;
+        const variant = p.variants?.[0];
+        if (!variant) continue;
+        const price = normalizePrice(String(variant.price), 1500);
+        if (!price) continue;
+        const compareAt = variant.compare_at_price ? normalizePrice(String(variant.compare_at_price), 1500) : null;
+        results.push({
+          source: sourceName, title, price,
+          original_price:   compareAt && compareAt > price ? compareAt : null,
+          discount_percent: calcDiscount(compareAt, price),
+          url:        `https://${host}/products/${p.handle}`,
+          image_url:  p.images?.[0]?.src || null,
+          category:   guessCategoryFromTitle(title) || category,
+          item_type:  itemType,
+          scraped_at: new Date().toISOString()
+        });
+      }
+      if (products.length < 250) break;
+    } catch (err) {
+      logger.error(`[Scraper/${sourceName}] erreur page ${page} : ${err.message}`);
+      break;
+    }
+  }
+  logger.info(`[Scraper/${sourceName}] (${itemType}) — ${results.length} articles`);
+  return results;
+}
+
+// ---------------------------------------------------------------
+// PRESTASHOP générique — Cheerio (boutiques sans WAF agressif)
+// ---------------------------------------------------------------
+async function scrapePrestaPage(url, sourceName, host, category = 'TCG', itemType = 'catalog') {
+  try {
+    await sleep(DELAY);
+    const { data } = await makeHttp(`https://${host}/`).get(url);
+    const $ = cheerio.load(data);
+    const results = [];
+    $('[data-id-product], article.product-miniature, .js-product-miniature').each((_, el) => {
+      const title = $(el).find('.product-title a, h2, h3').first().text().trim()
+                 || $(el).find('a[title]').first().attr('title') || '';
+      if (!title || title.length < 3) return;
+      const priceOld = normalizePrice($(el).find('.regular-price, s, del').first().text(), 1500);
+      const priceNew = normalizePrice($(el).find('.price').not('.regular-price').first().text(), 1500);
+      const price = priceNew || priceOld;
+      if (!price) return;
+      const href = $(el).find('a').first().attr('href') || '';
+      results.push({
+        source: sourceName, title, price,
+        original_price:   priceOld && priceNew && priceOld > priceNew ? priceOld : null,
+        discount_percent: calcDiscount(priceOld, priceNew),
+        url:        href.startsWith('http') ? href : `https://${host}${href}`,
+        image_url:  $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
+        category:   guessCategoryFromTitle(title) || category,
+        item_type:  itemType,
+        scraped_at: new Date().toISOString()
+      });
+    });
+    logger.info(`[Scraper/${sourceName}] (${itemType}) — ${results.length} articles sur ${url}`);
+    return results;
+  } catch (err) {
+    logger.error(`[Scraper/${sourceName}] erreur sur ${url} : ${err.message}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------
+// WOOCOMMERCE générique — Cheerio
+// ---------------------------------------------------------------
+async function scrapeWooPage(url, sourceName, host, category = 'TCG', itemType = 'catalog') {
+  try {
+    await sleep(DELAY);
+    const { data } = await makeHttp(`https://${host}/`).get(url);
+    const $ = cheerio.load(data);
+    const results = [];
+    $('li.product, .product-type-simple, .product-type-variable').each((_, el) => {
+      const title = $(el).find('.woocommerce-loop-product__title, h2, h3').first().text().trim() || '';
+      if (!title || title.length < 3) return;
+      const priceOld = normalizePrice($(el).find('.price del bdi, .price del').first().text(), 1500);
+      const priceNew = normalizePrice($(el).find('.price ins bdi, .price ins').first().text()
+                    || $(el).find('.price bdi, .amount').first().text(), 1500);
+      const price = priceNew || priceOld;
+      if (!price) return;
+      const href = $(el).find('a').first().attr('href') || '';
+      results.push({
+        source: sourceName, title, price,
+        original_price:   priceOld && priceNew && priceOld > priceNew ? priceOld : null,
+        discount_percent: calcDiscount(priceOld, priceNew),
+        url:        href.startsWith('http') ? href : `https://${host}${href}`,
+        image_url:  $(el).find('img').first().attr('src') || $(el).find('img').first().attr('data-src') || null,
+        category:   guessCategoryFromTitle(title) || category,
+        item_type:  itemType,
+        scraped_at: new Date().toISOString()
+      });
+    });
+    logger.info(`[Scraper/${sourceName}] (${itemType}) — ${results.length} articles sur ${url}`);
+    return results;
+  } catch (err) {
+    logger.error(`[Scraper/${sourceName}] erreur sur ${url} : ${err.message}`);
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------
+// Helpers de pagination
+// ---------------------------------------------------------------
+async function scrapeWooPaginated(baseUrl, sourceName, host, category = 'TCG', itemType = 'catalog', maxPages = 3) {
+  const all = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const url = page === 1 ? baseUrl : `${baseUrl.replace(/\/?$/, '')}/page/${page}/`;
+    const items = await scrapeWooPage(url, sourceName, host, category, itemType);
+    all.push(...items);
+    if (items.length < 5) break;
+    await sleep(DELAY);
+  }
+  return all;
+}
+
+async function scrapePrestaPagePaginated(baseUrl, sourceName, host, category = 'TCG', itemType = 'catalog', maxPages = 3, pageParam = 'p') {
+  const all = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const sep = baseUrl.includes('?') ? '&' : '?';
+    const url = page === 1 ? baseUrl : `${baseUrl}${sep}${pageParam}=${page}`;
+    const items = await scrapePrestaPage(url, sourceName, host, category, itemType);
+    all.push(...items);
+    if (items.length < 5) break;
+    await sleep(DELAY);
+  }
+  return all;
+}
+
+// ---------------------------------------------------------------
 // Utilitaires
 // ---------------------------------------------------------------
 const CATEGORY_PATTERNS = [
@@ -846,16 +993,13 @@ const SCRAPERS = {
   kingjouet:              scrapeKingJouet,
   'kingjouet-promo-lego': () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/promotions/marque-lego/page1.htm', 'Lego', 'promo'),
   'kingjouet-promo-js':   () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/jeux-de-societe-promotion/page1.htm', 'JeuxSociete', 'promo'),
-  // Micromania
-  micromania:             scrapeMicromania,
+  // Micromania utilise Gmail parser à la place (newsletter déjà reçue)
+  // Fallback HTML désactivé (ECONNRESET — anti-bot actif) :
+  // micromania: scrapeMicromania,
   // Smyths — pages promos confirmées
   'smyths-promo':         () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/mega-promos/c/mega-promos',                    null,          'promo'),
   'smyths-soldes':        () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/soldes/c/soldes',                               null,          'promo'),
   'smyths-lego-promo':    () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/lego/promotions-lego/c/promotions-lego',        'Lego',        'promo'),
-  // Furet du Nord — HTML SSR, axios
-  'furetdunord-pokemon':  () => scrapeFuretDuNordPage('https://www.furet.com/jeux/cartes-a-collectionner-et-licences/pokemon.html',               'TCG',         'catalog'),
-  'furetdunord-tcg':      () => scrapeFuretDuNordPage('https://www.furet.com/jeux/cartes-a-collectionner-et-licences.html',                       'TCG',         'catalog'),
-  'furetdunord-jeux':     () => scrapeFuretDuNordPage('https://www.furet.com/jeux/jeux-famille-et-adultes/jeux-de-cartes.html',                   'JeuxSociete', 'catalog'),
   // Philibert — promos + occasions
   philibert:              scrapePhilibert,
   'philibert-occasions':  () => scrapePhilibertPage('https://www.philibertnet.com/fr/214-occasions', null, 'promo'),
@@ -886,7 +1030,6 @@ const CATALOG_SCRAPERS = {
   // Cultura — TCG (URLs confirmées)
   'cultura-pokemon':     () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-pokemon.html', 'TCG', 'catalog'),
   'cultura-lorcana':     () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-lorcana.html', 'TCG', 'catalog'),
-  'cultura-lorcana-alt': () => scrapeCulturaPage('https://www.cultura.com/c/jeux-de-carte-disney-lorcana',                         'TCG', 'catalog'),
   'cultura-magic':       () => scrapeCulturaPage('https://www.cultura.com/jeux-video-consoles/cartes-a-jouer/cartes-magic.html',   'TCG', 'catalog'),
   // Cultura — Lego & JV
   'cultura-lego':        () => scrapeCulturaPage('https://www.cultura.com/univers-enfant/jeux-jouets/jeux-de-construction/lego/tous-les-produits-lego.html', 'Lego', 'catalog'),
@@ -896,22 +1039,12 @@ const CATALOG_SCRAPERS = {
   'philibert-lorcana':   () => scrapePhilibertPage('https://www.philibertnet.com/fr/15880-lorcana',      'TCG',        'catalog'),
   'philibert-tcg':       () => scrapePhilibertPage('https://www.philibertnet.com/fr/119-jeux-de-cartes', 'TCG',        'catalog'),
   'philibert-js':        () => scrapePhilibertPage('https://www.philibertnet.com/fr/50-jeux-de-societe', 'JeuxSociete','catalog'),
-  // King Jouet — catalogue (kingjouet-lego URL corrigée)
-  'kingjouet-pokemon':   () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/Pokemon/page1.htm',                             'TCG',  'catalog'),
-  'kingjouet-tcg':       () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/jeux-societes/cartes-a-collectionner/page1.htm', 'TCG',  'catalog'),
-  'kingjouet-lego':      () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/marque-lego/page1.htm',                          'Lego', 'catalog'),
-  // Micromania — catalogue TCG
-  'micromania-pokemon':  () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes?marque=pokemon', 'TCG', 'catalog'),
-  'micromania-lorcana':  () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes?marque=lorcana', 'TCG', 'catalog'),
-  // Smyths — catalogue (IDs SM stables, + jds nouveau)
-  'smyths-jds':          () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/c/SM130106',            'JeuxSociete', 'catalog'),
-  'smyths-tcg':          () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/cartes-a-collectionner/c/SM13010611', 'TCG', 'catalog'),
-  'smyths-pokemon':      () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/marques/pokemon/c/SM130208',                              'TCG',         'catalog'),
-  'smyths-lorcana':      () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/jeux-de-societe-et-puzzles/cartes-a-collectionner/cartes-lorcana/c/SM1301061105', 'TCG', 'catalog'),
-  // Furet du Nord — HTML SSR
-  'furetdunord-pokemon': () => scrapeFuretDuNordPage('https://www.furet.com/jeux/cartes-a-collectionner-et-licences/pokemon.html',    'TCG',         'catalog'),
-  'furetdunord-tcg':     () => scrapeFuretDuNordPage('https://www.furet.com/jeux/cartes-a-collectionner-et-licences.html',            'TCG',         'catalog'),
-  'furetdunord-jeux':    () => scrapeFuretDuNordPage('https://www.furet.com/jeux/jeux-famille-et-adultes/jeux-de-cartes.html',        'JeuxSociete', 'catalog'),
+  // Micromania utilise Gmail parser à la place (newsletter déjà reçue)
+  // Fallback HTML désactivé (ECONNRESET — anti-bot actif). URLs correctes si besoin :
+  // 'micromania-catalog': () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes',                     'TCG',      'catalog'),
+  // 'micromania-pokemon': () => scrapeMicromaniaPage('https://www.micromania.fr/cartes-pokemon.html',          'TCG',      'catalog'),
+  // 'micromania-lorcana': () => scrapeMicromaniaPage('https://www.micromania.fr/universe?licence=LORCANA',     'TCG',      'catalog'),
+  // 'micromania-promo':   () => scrapeMicromaniaPage('https://www.micromania.fr/promotions',                   null,       'promo'),
   // Fnac — catalogue Chromium
   'fnac-pokemon-cat':    () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4', 'TCG',  'catalog'),
   'fnac-lorcana-cat':    () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4', 'TCG',  'catalog'),
@@ -932,10 +1065,44 @@ const CATALOG_SCRAPERS = {
   // Pages éditoriales → pas de pagination
   'bcd-tcg-global':      () => scrapeBcdJeuxPage('https://www.bcd-jeux.fr/page/133-jcc-jce-cartes-a-collectionner',           'TCG',        'catalog'),
   'bcd-jds':             () => scrapeBcdJeuxPage('https://www.bcd-jeux.fr/page/57-les-jeux-de-societe-pour-toute-la-famille',  'JeuxSociete','catalog'),
+
+  // ── Boutiques spécialisées TCG ─────────────────────────────────
+  // Shopify — API /products.json publique, pas de Chromium
+  // Lorenzone — Shopify collections spécifiques (remplace ludiworld, plus précis)
+  'lorenzone-pokemon':   () => scrapeShopifyJson('lorenzone.fr', [], 'lorenzone', 'TCG', 'catalog', 3, 'collections/pokemon'),
+  'lorenzone-lorcana':   () => scrapeShopifyJson('lorenzone.fr', [], 'lorenzone', 'TCG', 'catalog', 3, 'collections/lorcana'),
+  'relictcg-tcg':        () => scrapeShopifyJson('www.relictcg.com',           ['pokemon','lorcana','magic'], 'relictcg',     'TCG', 'catalog'),
+  'kairyu-pokemon':      () => scrapeShopifyJson('www.kairyu.fr',              ['pokemon'],                   'kairyu',       'TCG', 'catalog'),
+  'pokestation-pokemon': () => scrapeShopifyJson('www.pokestation.fr',         ['pokemon'],                   'pokestation',  'TCG', 'catalog'),
+  // Pokemoms — WooCommerce (pas Shopify)
+  'pokemoms-pokemon':    () => scrapeWooPaginated('https://pokemoms.fr/categorie-produit/pokemon/',                                    'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
+  'pokemoms-coffrets':   () => scrapeWooPaginated('https://pokemoms.fr/categorie-produit/pokemon/coffrets-boosters/',                  'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
+  'pokemoms-lorcana':    () => scrapeWooPaginated('https://pokemoms.fr/categorie-produit/lorcana-tcg/',                                'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
+  'pokemoms-boutique':   () => scrapeWooPaginated('https://pokemoms.fr/boutique-2/',                                                   'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
+  // Pokuji — WooCommerce (pas Shopify)
+  'pokuji-pokemon':           () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/pokemon-francais/',              'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
+  'pokuji-lorcana':           () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/',              'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
+  'pokuji-lorcana-display':   () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/displays-lorcana/',  'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
+  'pokuji-lorcana-coffrets':  () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/coffrets-lorcana/', 'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
+  // Ultrajeux — PrestaShop (URLs de catégories, pas de recherche)
+  'ultrajeux-pokemon':        () => scrapePrestaPagePaginated('https://www.ultrajeux.com/jeu-4-pokemon.html',                          'ultrajeux', 'www.ultrajeux.com', 'TCG', 'catalog', 3, 'p'),
+  'ultrajeux-pokemon-cartes': () => scrapePrestaPagePaginated('https://www.ultrajeux.com/cat-1-4-cartes-a-collectionner-pokemon.html', 'ultrajeux', 'www.ultrajeux.com', 'TCG', 'catalog', 3, 'p'),
+  'ultrajeux-lorcana':        () => scrapePrestaPagePaginated('https://www.ultrajeux.com/cat-0-1033-cartes-a-collectionner-lorcana.html', 'ultrajeux', 'www.ultrajeux.com', 'TCG', 'catalog', 3, 'p'),
+  // Destocktcg — PrestaShop (URLs de catégories, pas de recherche)
+  'destocktcg-pokemon':          () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/pokemon/',                              'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
+  'destocktcg-pokemon-boosters': () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/pokemon/booster-et-boite-de-boosters/', 'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
+  'destocktcg-lorcana':          () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/disney-lorcana/',                       'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
+  'destocktcg-tcg-global':       () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/',                                      'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
+  'hikaru-tcg':          () => scrapeShopifyJson('www.hikarudistribution.com', ['pokemon'],                   'hikaru',       'TCG', 'catalog'),
+  'dracaugames-tcg':     () => scrapeShopifyJson('www.dracaugames.com',        ['pokemon','lorcana','magic'], 'dracaugames',  'TCG', 'catalog'),
+  // Lecoindesbarons — WooCommerce catégories directes (la recherche retournait 0)
+  'lecoindesbarons-pokemon': () => scrapeWooPaginated('https://lecoindesbarons.com/les-tcg/cartes-pokemon/',                'lecoindesbarons', 'lecoindesbarons.com', 'TCG', 'catalog'),
+  'lecoindesbarons-lorcana': () => scrapeWooPaginated('https://lecoindesbarons.com/les-tcg/cartes-lorcana/',                'lecoindesbarons', 'lecoindesbarons.com', 'TCG', 'catalog'),
+  'lecoindesbarons-display': () => scrapeWooPaginated('https://lecoindesbarons.com/les-tcg/cartes-pokemon/display-pokemon/', 'lecoindesbarons', 'lecoindesbarons.com', 'TCG', 'catalog'),
 };
 
 async function scrapeAll(only) {
-  const keys = only && only.length ? only : Object.keys(SCRAPERS);
+  const keys = only?.length ? only : Object.keys(SCRAPERS);
   const all  = [];
   for (const key of keys) {
     if (!SCRAPERS[key]) { logger.warn(`[Scraper] Scraper inconnu : "${key}"`); continue; }
@@ -947,7 +1114,7 @@ async function scrapeAll(only) {
 }
 
 async function scrapeAllCatalog(only) {
-  const keys = only && only.length ? only : Object.keys(CATALOG_SCRAPERS);
+  const keys = only?.length ? only : Object.keys(CATALOG_SCRAPERS);
   const all  = [];
   for (const key of keys) {
     if (!CATALOG_SCRAPERS[key]) { logger.warn(`[Scraper] Catalogue inconnu : "${key}"`); continue; }

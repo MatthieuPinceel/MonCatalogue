@@ -1,9 +1,9 @@
 'use strict';
 
-require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
+require('dotenv').config({ path: require('node:path').resolve(__dirname, '../.env') });
 
 const express = require('express');
-const path    = require('path');
+const path    = require('node:path');
 const logger  = require('./services/logger');
 const { initDb } = require('./db/init');
 

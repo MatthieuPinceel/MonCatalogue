@@ -15,8 +15,8 @@ const http = axios.create({ timeout: 10000 });
 let _withPage = null;
 function getWithPage() {
   if (_withPage) return _withPage;
-  try { _withPage = require('./chromium-steam').withPage; return _withPage; } catch {}
-  try { _withPage = require('../services/chromium').withPage; return _withPage; } catch {}
+  try { _withPage = require('./chromium-steam').withPage; return _withPage; } catch (e) { logger.debug(`[Steam] ${e.message}`); }
+  try { _withPage = require('../services/chromium').withPage; return _withPage; } catch (e) { logger.debug(`[Steam] ${e.message}`); }
   return null;
 }
 
@@ -212,7 +212,7 @@ async function fetchSteamWishlist() {
         } else {
           logger.warn(`[Steam/Wishlist] XHR vide ou erreur — ${text.slice(0, 100)}`);
         }
-      } catch (e) { /* pas JSON, ignore */ }
+      } catch (e) { logger.debug('[Steam/Wishlist] Non-JSON XHR response, skipping'); }
     });
 
     const wishUrl = `https://store.steampowered.com/wishlist/profiles/${STEAM_ID}/`;
@@ -223,7 +223,7 @@ async function fetchSteamWishlist() {
     // Diagnostic : voir sur quelle page on est vraiment
     const finalUrl   = page.url();
     const pageTitle  = await page.title();
-    const bodySnap   = await page.evaluate(() => document.body?.innerText?.slice(0, 400).replace(/\s+/g, ' ') || '');
+    const bodySnap   = await page.evaluate(() => document.body?.innerText?.slice(0, 400).replaceAll(/\s+/g, ' ') || '');
     logger.info(`[Steam/Wishlist] URL finale : ${finalUrl}`);
     logger.info(`[Steam/Wishlist] Titre page : ${pageTitle}`);
     logger.info(`[Steam/Wishlist] Contenu body (400c) : ${bodySnap}`);
@@ -237,7 +237,7 @@ async function fetchSteamWishlist() {
     await new Promise(r => setTimeout(r, 3000));
 
     // Tentative d'extraction depuis le JS de la page si XHR non intercepté
-    if (!Object.keys(allData).length) {
+    if (Object.keys(allData).length === 0) {
       logger.info('[Steam/Wishlist] XHR non intercepté, extraction JS...');
       const jsData = await page.evaluate(() => {
         // Steam stocke les données dans window.g_Wishlist ou variable similaire
@@ -273,7 +273,7 @@ async function fetchSteamWishlist() {
     const discount  = sub.discount_pct || 0;
     const salePrice = price && discount ? Math.round(price * (1 - discount / 100) * 100) / 100 : price;
     items.push({
-      appid:        parseInt(appid, 10),
+      appid:        Number.parseInt(appid, 10),
       name:         info.name || `App ${appid}`,
       price,
       sale_price:   salePrice,

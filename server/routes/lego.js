@@ -15,7 +15,7 @@ const rbHttp = axios.create({ timeout: 10000, baseURL: 'https://rebrickable.com/
  */
 router.get('/lookup/:setNumber', async (req, res) => {
   if (!REBRICKABLE_KEY) return res.status(503).json({ error: 'REBRICKABLE_API_KEY non configurée' });
-  const num = req.params.setNumber.replace(/[^0-9\-]/g, '');
+  const num = req.params.setNumber.replaceAll(/[^0-9-]/g, '');
   const setId = num.includes('-') ? num : `${num}-1`;
   try {
     const { data } = await rbHttp.get(`/sets/${setId}/`, {
@@ -136,7 +136,12 @@ router.get('/wishlist/prices', (req, res) => {
     const results = wishlist.map(item => {
       // Chercher dans promos par numéro de set OU mots du nom
       const words = item.name.split(' ').filter(w => w.length > 3).slice(0, 3);
-      const patterns = [item.set_number, ...words];
+      const patterns = [
+        ...(item.set_number ? [item.set_number] : []),
+        ...words
+      ];
+      if (!patterns.length) return { ...item, offers: [] };
+
       const placeholders = patterns.map(() => "title LIKE ?").join(' OR ');
       const args = patterns.map(p => `%${p}%`);
 
@@ -144,7 +149,7 @@ router.get('/wishlist/prices', (req, res) => {
         `SELECT source, title, price, original_price, discount_percent, url, image_url, scraped_at
          FROM promos
          WHERE (${placeholders}) AND category = 'Lego'
-         ORDER BY price ASC LIMIT 5`
+         ORDER BY price ASC`
       ).all(...args);
 
       return { ...item, offers };

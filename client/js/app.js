@@ -127,7 +127,9 @@ async function loadAnthropicBudget() {
     const value = document.getElementById('budgetValue');
     const pct   = Math.min(data.percent_used, 100);
     fill.style.width = `${pct}%`;
-    fill.style.background = pct > 80 ? 'var(--danger)' : pct > 60 ? 'var(--warning)' : 'var(--success)';
+    if (pct > 80) fill.style.background = 'var(--danger)';
+    else if (pct > 60) fill.style.background = 'var(--warning)';
+    else fill.style.background = 'var(--success)';
     value.textContent = `${data.total_usd.toFixed(3)} $ / ${data.limit_usd} $`;
   } catch (e) { /* silencieux */ }
 }
@@ -148,7 +150,7 @@ function formatDate(str) {
   return new Date(str).toLocaleDateString('fr-FR');
 }
 function escHtml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 }
 
 // ─── Démarrage ────────────────────────────────────────────────

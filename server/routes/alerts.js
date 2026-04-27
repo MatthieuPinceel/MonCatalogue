@@ -30,7 +30,7 @@ router.post('/', (req, res) => {
       INSERT INTO price_alerts (type, item_id, item_name, source, threshold_price, created_at)
       VALUES (?, ?, ?, ?, ?, datetime('now'))
       ON CONFLICT(type, item_id, source) DO UPDATE SET threshold_price = excluded.threshold_price, active = 1
-    `).run(type, item_id, item_name, source || null, parseFloat(threshold_price));
+    `).run(type, item_id, item_name, source || null, Number.parseFloat(threshold_price));
     res.json({ id: result.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -62,7 +62,7 @@ router.get('/usage', (req, res) => {
     `).all(`${month}%`);
 
     const totalUsd = usage.reduce((s, r) => s + (r.total_usd || 0), 0);
-    const limit    = parseFloat(process.env.ANTHROPIC_MONTHLY_LIMIT_USD || '2.50');
+    const limit    = Number.parseFloat(process.env.ANTHROPIC_MONTHLY_LIMIT_USD || '2.50');
 
     res.json({
       month,

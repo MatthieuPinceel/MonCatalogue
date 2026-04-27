@@ -12,6 +12,38 @@ const LORCANA_BASE = process.env.LORCANA_API_BASE || 'https://api.lorcast.com/v0
 
 const http = axios.create({ timeout: 15000 });
 
+// Fetch natif (undici) pour l'API PokémonTCG — fingerprint TLS différent d'axios
+// ce qui contourne les blocages Cloudflare qui ciblent le TLS de Node https/axios.
+async function pokemonFetch(path, extraHeaders = {}, retries = 2) {
+  const url = `${POKEMON_BASE}${path}`;
+  const headers = {
+    'Accept': 'application/json',
+    ...(process.env.POKEMON_TCG_API_KEY ? { 'X-Api-Key': process.env.POKEMON_TCG_API_KEY } : {}),
+    ...extraHeaders
+  };
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    try {
+      const res = await fetch(url, { headers, signal: ctrl.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text().catch(() => '')}`);
+      return await res.json();
+    } catch (err) {
+      clearTimeout(timer);
+      const cause = err.cause?.code || err.cause?.message || err.cause?.name || '';
+      if (attempt < retries) {
+        logger.warn(`[TCG/Pokemon] Retry ${attempt + 1}/${retries} — ${err.message}${cause ? ` (${cause})` : ''}`);
+        await new Promise(r => setTimeout(r, 800 * (attempt + 1)));
+        continue;
+      }
+      const detail = cause ? `${err.message} (cause: ${cause})` : err.message;
+      throw new Error(detail);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
 // ---------------------------------------------------------------
 // POKEMON
 // ---------------------------------------------------------------
@@ -23,10 +55,8 @@ router.get('/pokemon/sets', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const headers = process.env.POKEMON_TCG_API_KEY
-      ? { 'X-Api-Key': process.env.POKEMON_TCG_API_KEY } : {};
-    const { data } = await http.get(`${POKEMON_BASE}/sets?orderBy=-releaseDate`, { headers });
-    const sets     = data.data || [];
+    const data = await pokemonFetch('/sets?orderBy=-releaseDate');
+    const sets = data.data || [];
     cache.set(cacheKey, sets, 3600);
     res.json(sets);
   } catch (err) {
@@ -43,15 +73,13 @@ router.get('/pokemon/cards', async (req, res) => {
   if (cached) return res.json(cached);
 
   try {
-    const headers = process.env.POKEMON_TCG_API_KEY
-      ? { 'X-Api-Key': process.env.POKEMON_TCG_API_KEY } : {};
     let q = '';
     if (set)  q += `set.id:${set} `;
-    if (name) q += `name:"${name.replace(/"/g, '\\"')}"`;
-    const params = { page, pageSize: 36, orderBy: 'number' };
-    if (q.trim()) params.q = q.trim();
+    if (name) q += `name:"${name.replaceAll('"', '\\"')}"`;
+    const qs = new URLSearchParams({ page, pageSize: 36, orderBy: 'number' });
+    if (q.trim()) qs.set('q', q.trim());
 
-    const { data } = await http.get(`${POKEMON_BASE}/cards`, { headers, params });
+    const data = await pokemonFetch(`/cards?${qs}`);
     cache.set(cacheKey, data, 1800);
     res.json(data);
   } catch (err) {
@@ -180,12 +208,10 @@ router.get('/missing', async (req, res) => {
 
     let allCards = [];
     if (game === 'pokemon') {
-      const headers = process.env.POKEMON_TCG_API_KEY
-        ? { 'X-Api-Key': process.env.POKEMON_TCG_API_KEY } : {};
       // L'API Pokémon TCG limite pageSize à 250 — on pagine pour les grands sets
       let page = 1;
       while (true) {
-        const { data } = await http.get(`${POKEMON_BASE}/cards?q=set.id:${set}&pageSize=250&page=${page}`, { headers });
+        const data = await pokemonFetch(`/cards?q=set.id:${set}&pageSize=250&page=${page}`);
         const cards = data.data || [];
         allCards = allCards.concat(cards.map(c => ({ id: c.id, name: c.name, number: c.number, rarity: c.rarity })));
         if (cards.length < 250) break;
@@ -218,7 +244,7 @@ router.get('/export', (req, res) => {
     const csv    = rows.map(r =>
       [r.game, r.card_id, r.set_id, r.set_name, r.card_name, r.rarity,
        r.condition, r.quantity, r.price_paid, r.market_price, r.notes || '']
-        .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
+        .map(v => `"${String(v || '').replaceAll('"', '""')}"`)
         .join(',')
     ).join('\n');
 
@@ -260,7 +286,7 @@ router.get('/wishlist/prices', (req, res) => {
         `SELECT source, title, price, original_price, discount_percent, url, image_url, scraped_at
          FROM promos
          WHERE (${placeholders}) AND category = 'TCG'
-         ORDER BY price ASC LIMIT 5`
+         ORDER BY price ASC`
       ).all(...likeArgs);
 
       return { ...item, offers };

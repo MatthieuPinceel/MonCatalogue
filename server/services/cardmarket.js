@@ -12,7 +12,7 @@ const logger  = require('./logger');
 const cache   = require('./cache');
 
 const BASE_URL  = 'https://www.cardmarket.com/fr';
-const DELAY_MS  = parseInt(process.env.SCRAPE_DELAY_MS || '2000', 10);
+const DELAY_MS  = Number.parseInt(process.env.SCRAPE_DELAY_MS || '2000', 10);
 const UA        = process.env.SCRAPE_USER_AGENT ||
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36';
 
@@ -56,13 +56,13 @@ async function getPokemonCardPrice(cardName, setName) {
       const name      = $(el).find('.col-title a').first().text().trim();
       const set       = $(el).find('.col-expansion a').first().text().trim();
       const priceFrom = $(el).find('.col-price .price-container').first().text()
-        .replace(/[^\d,\.]/g, '').replace(',', '.').trim();
+        .replace(/[^\d,.]/g, '').replace(',', '.').trim();
 
       if (name) {
         items.push({
           name,
           setName: set,
-          priceFrom: parseFloat(priceFrom) || null,
+          priceFrom: Number.parseFloat(priceFrom) || null,
           url: BASE_URL + ($(el).find('.col-title a').attr('href') || '')
         });
       }
@@ -108,11 +108,11 @@ async function getLorcanaCardPrice(cardName) {
     $('.table-body .row').each((i, el) => {
       const name      = $(el).find('.col-title a').first().text().trim();
       const priceFrom = $(el).find('.col-price .price-container').first().text()
-        .replace(/[^\d,\.]/g, '').replace(',', '.').trim();
+        .replace(/[^\d,.]/g, '').replace(',', '.').trim();
       if (name) {
         items.push({
           name,
-          priceFrom: parseFloat(priceFrom) || null,
+          priceFrom: Number.parseFloat(priceFrom) || null,
           url: BASE_URL + ($(el).find('.col-title a').attr('href') || '')
         });
       }

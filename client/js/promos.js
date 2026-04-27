@@ -67,7 +67,7 @@ function buildPromoCard(item) {
         </div>
         <div style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap">
           <button class="btn btn-secondary" style="font-size:.75rem;padding:.2rem .6rem"
-            onclick="analyzePromoItem(${item.id}, '${escHtml(item.title).replace(/'/g, "\\'")}')">
+            onclick="analyzePromoItem(${item.id}, '${escHtml(item.title).replaceAll("'", "\\'")}')">
             🤖 Analyser
           </button>
           <a class="btn btn-secondary" style="font-size:.75rem;padding:.2rem .6rem;text-decoration:none"
@@ -159,7 +159,7 @@ function renderPagination(total, offset, limit) {
   container.innerHTML = html;
 
   container.querySelectorAll('.page-btn').forEach(btn => {
-    btn.addEventListener('click', () => { promoPage = parseInt(btn.dataset.p, 10); loadPromos(); });
+    btn.addEventListener('click', () => { promoPage = Number.parseInt(btn.dataset.p, 10); loadPromos(); });
   });
 }
 
@@ -174,7 +174,8 @@ document.getElementById('scrapeNowBtn').addEventListener('click', async () => {
   btn.textContent = '⏳ Scraping...';
   try {
     const res = await API.post('/promos/scrape', {});
-    toast(`Scraping : ${res.saved} enregistrés${res.deleted ? `, ${res.deleted} expirés supprimés` : ''}`, 'success');
+    const deletedMsg = res.deleted ? `, ${res.deleted} expirés supprimés` : '';
+    toast(`Scraping : ${res.saved} enregistrés${deletedMsg}`, 'success');
     resetAndLoad();
   } catch (err) {
     toast(`Erreur : ${err.message}`, 'error');
@@ -191,7 +192,8 @@ document.getElementById('scrapeCatalogBtn').addEventListener('click', async () =
   btn.textContent = '⏳ Scan...';
   try {
     const res = await API.post('/promos/scrape-catalog', {});
-    toast(`Catalogue : ${res.saved} enregistrés${res.deleted ? `, ${res.deleted} expirés supprimés` : ''}`, 'success');
+    const deletedMsg2 = res.deleted ? `, ${res.deleted} expirés supprimés` : '';
+    toast(`Catalogue : ${res.saved} enregistrés${deletedMsg2}`, 'success');
     resetAndLoad();
   } catch (err) {
     toast(`Erreur : ${err.message}`, 'error');
@@ -403,7 +405,8 @@ function renderGmailPromos(items) {
       const promos = item.extracted_promos || [];
       const badges = promos.map(p => {
         if (p.type === 'discount_pct') {
-          return `<span class="promo-badge">${p.max ? `-${p.min}% à -${p.max}%` : `-${p.min}%`}</span>`;
+          const pctRange = p.max ? `-${p.min}% à -${p.max}%` : `-${p.min}%`;
+          return `<span class="promo-badge">${pctRange}</span>`;
         }
         if (p.type === 'price') {
           return `<span class="promo-badge">${p.sale}€ <s style="opacity:.6">${p.original}€</s></span>`;
