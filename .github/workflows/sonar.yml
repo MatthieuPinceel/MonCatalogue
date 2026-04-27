@@ -50,61 +50,63 @@ jobs:
           gh label create "sonarcloud-report" --color "0075ca" \
             --description "Rapport SonarCloud automatique" 2>/dev/null || true
 
-          # Attendre que le Compute Engine SonarCloud finisse de traiter
           sleep 45
 
-          ISSUES=$(curl -s -u "${SONAR_TOKEN}:" \
-            "https://sonarcloud.io/api/issues/search?componentKeys=matthieupinceel_moncatalogue&resolved=false&severities=BLOCKER,CRITICAL,MAJOR,MINOR&ps=100&s=SEVERITY&asc=false")
+          curl -s -u "${SONAR_TOKEN}:" \
+            "https://sonarcloud.io/api/issues/search?componentKeys=matthieupinceel_moncatalogue&resolved=false&severities=BLOCKER,CRITICAL,MAJOR,MINOR&ps=100&s=SEVERITY&asc=false" \
+            > /tmp/sonar_issues.json
 
-          BODY=$(echo "$ISSUES" | \
-            COMMIT_SHA="$COMMIT_SHA" BRANCH_NAME="$BRANCH_NAME" python3 -c "
-import sys, json, datetime, os
-data = json.load(sys.stdin)
-issues = data.get('issues', [])
-total = data.get('total', 0)
-now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
-sha = os.environ.get('COMMIT_SHA','?')[:8]
-branch = os.environ.get('BRANCH_NAME','?')
-lines = [
-    f'## Rapport SonarCloud — {now}',
-    f'**Branche :** \`{branch}\` | **Commit :** \`{sha}\`',
-    f'**{total} issue(s) non résolu(s)**',
-    ''
-]
-sev_order = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR']
-by_sev = {}
-for i in issues:
-    s = i.get('severity', '?')
-    by_sev.setdefault(s, []).append(i)
-emojis = {'BLOCKER': '🔴', 'CRITICAL': '🟠', 'MAJOR': '🟡', 'MINOR': '🔵'}
-for sev in sev_order:
-    grp = by_sev.get(sev, [])
-    if not grp:
-        continue
-    lines.append(f'### {emojis.get(sev, \"•\")} {sev} ({len(grp)})')
-    for i in grp:
-        comp = i.get('component', '').split(':')[-1]
-        line_num = i.get('line', '?')
-        msg = i.get('message', '')
-        rule = i.get('rule', '')
-        lines.append(f'- \`{comp}:{line_num}\` — {msg} (\`{rule}\`)')
-    lines.append('')
-if not any(by_sev.get(s) for s in sev_order):
-    lines.append('✅ Aucun problème détecté !')
-lines.append('> _Fermer cette issue une fois les corrections appliquées_')
-print('\n'.join(lines))
-")
+          cat > /tmp/format_sonar.py << 'PYEOF'
+          import sys, json, datetime, os
+          with open('/tmp/sonar_issues.json') as f:
+              data = json.load(f)
+          issues = data.get('issues', [])
+          total = data.get('total', 0)
+          now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+          sha = os.environ.get('COMMIT_SHA', '?')[:8]
+          branch = os.environ.get('BRANCH_NAME', '?')
+          lines = [
+              '## Rapport SonarCloud -- ' + now,
+              '**Branche :** `' + branch + '` | **Commit :** `' + sha + '`',
+              '**' + str(total) + ' issue(s) non resolu(s)**',
+              '',
+          ]
+          sev_order = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR']
+          by_sev = {}
+          for i in issues:
+              s = i.get('severity', '?')
+              by_sev.setdefault(s, []).append(i)
+          emojis = {'BLOCKER': 'BLOQUANT', 'CRITICAL': 'CRITIQUE', 'MAJOR': 'MAJEUR', 'MINOR': 'MINEUR'}
+          for sev in sev_order:
+              grp = by_sev.get(sev, [])
+              if not grp:
+                  continue
+              lines.append('### ' + emojis.get(sev, sev) + ' (' + str(len(grp)) + ')')
+              for i in grp:
+                  comp = i.get('component', '').split(':')[-1]
+                  line_num = str(i.get('line', '?'))
+                  msg = i.get('message', '')
+                  rule = i.get('rule', '')
+                  lines.append('- `' + comp + ':' + line_num + '` -- ' + msg + ' (`' + rule + '`)')
+              lines.append('')
+          if not any(by_sev.get(s) for s in sev_order):
+              lines.append('Aucun probleme detecte !')
+          lines.append('> Fermer cette issue une fois les corrections appliquees')
+          print('\n'.join(lines))
+          PYEOF
+
+          BODY=$(python3 /tmp/format_sonar.py)
 
           EXISTING=$(gh issue list --label "sonarcloud-report" \
-            --state open --json number --jq '.[0].number' 2>/dev/null)
+            --state open --json number --jq 'if length > 0 then .[0].number | tostring else "" end' 2>/dev/null)
 
           if [ -n "$EXISTING" ]; then
             gh issue edit "$EXISTING" --body "$BODY"
-            echo "Issue #$EXISTING mise à jour"
+            echo "Issue #$EXISTING mise a jour"
           else
             gh issue create \
               --title "SonarCloud Report" \
               --body "$BODY" \
               --label "sonarcloud-report"
-            echo "Issue créée"
+            echo "Issue creee"
           fi
