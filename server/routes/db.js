@@ -2,8 +2,8 @@
 
 const express  = require('express');
 const router   = express.Router();
-const path     = require('path');
-const fs       = require('fs');
+const path     = require('node:path');
+const fs       = require('node:fs');
 const { getDb } = require('../db/init');
 const logger   = require('../services/logger');
 
