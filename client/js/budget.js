@@ -29,7 +29,10 @@ function renderBudgetTotal(summary) {
   const total_spent = summary.reduce((s, r) => s + r.spent, 0);
   const total_limit = summary.reduce((s, r) => s + r.limit, 0);
   const pct   = total_limit > 0 ? Math.min((total_spent / total_limit) * 100, 100) : 0;
-  const color = total_spent > total_limit ? 'var(--danger)' : pct > 80 ? 'var(--warning)' : 'var(--success)';
+  let color;
+  if (total_spent > total_limit) color = 'var(--danger)';
+  else if (pct > 80) color = 'var(--warning)';
+  else color = 'var(--success)';
   document.getElementById('budgetTotal').innerHTML = `
     <div class="card" style="padding:1rem 1.25rem">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.6rem">
@@ -48,7 +51,10 @@ function renderBudgetGrid(summary) {
   renderBudgetTotal(summary);
   grid.innerHTML = summary.map(s => {
     const pct   = s.limit > 0 ? Math.min((s.spent / s.limit) * 100, 100) : 0;
-    const cls   = s.over_budget ? 'budget-over' : pct > 80 ? 'budget-warn' : 'budget-ok';
+    let cls;
+    if (s.over_budget) cls = 'budget-over';
+    else if (pct > 80) cls = 'budget-warn';
+    else cls = 'budget-ok';
     const label = s.category.replace('TCG_', 'TCG ');
     return `
       <div class="budget-cat-card ${cls}">
@@ -88,12 +94,12 @@ function renderPurchasesTable(purchases) {
 
 function renderBudgetHistoryChart(history, selectedMonth) {
   const ctx = document.getElementById('chartBudgetHistory').getContext('2d');
-  const months = [...new Set(history.map(r => r.month))].sort();
+  const months = [...new Set(history.map(r => r.month))].sort((a, b) => a.localeCompare(b));
   const cats   = [...new Set(history.map(r => r.category))];
   const COLORS = { TCG_Pokemon:'#6366f1', TCG_Lorcana:'#a855f7', Lego:'#f59e0b', JeuxVideo:'#22c55e', JeuxSociete:'#3b82f6' };
 
   // Include selected month even if it has no expenses
-  const allMonths = months.includes(selectedMonth) ? months : [...months, selectedMonth].sort();
+  const allMonths = months.includes(selectedMonth) ? months : [...months, selectedMonth].sort((a, b) => a.localeCompare(b));
 
   const datasets = cats.map(cat => {
     const base = COLORS[cat] || '#64748b';
