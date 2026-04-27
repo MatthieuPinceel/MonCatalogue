@@ -32,8 +32,8 @@ router.post('/purchases', (req, res) => {
     if (!CATEGORIES.includes(category)) {
       return res.status(400).json({ error: `Catégorie invalide. Valeurs : ${CATEGORIES.join(', ')}` });
     }
-    const parsed = Number.Number.parseFloat(amount);
-    if (Number.Number.isNaN(parsed) || parsed <= 0) {
+    const parsed = Number.parseFloat(amount);
+    if (Number.isNaN(parsed) || parsed <= 0) {
       return res.status(400).json({ error: 'Le montant doit être un nombre positif' });
     }
     const date   = purchase_date || new Date().toISOString().slice(0, 10);
@@ -117,8 +117,8 @@ router.put('/limits/:category', (req, res) => {
     if (!CATEGORIES.includes(cat)) {
       return res.status(400).json({ error: 'Catégorie invalide' });
     }
-    const parsed = Number.Number.parseFloat(monthly_limit);
-    if (Number.Number.isNaN(parsed) || parsed < 0) {
+    const parsed = Number.parseFloat(monthly_limit);
+    if (Number.isNaN(parsed) || parsed < 0) {
       return res.status(400).json({ error: 'monthly_limit doit être un nombre >= 0' });
     }
     db.prepare(`

@@ -23,7 +23,7 @@ async function withChromiumPage(fn) {
   return withPage(fn);
 }
 
-const DELAY = Number.Number.parseInt(process.env.SCRAPE_DELAY_MS || '1500', 10);
+const DELAY = Number.parseInt(process.env.SCRAPE_DELAY_MS || '1500', 10);
 const UA    = process.env.SCRAPE_USER_AGENT ||
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -53,7 +53,7 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function normalizePrice(str, maxPrice = 500) {
   if (!str) return null;
   const cleaned = String(str).replace(/\s/g, '').replaceAll(/[^\d,.]/g, '').replace(',', '.').trim();
-  const val = Number.Number.parseFloat(cleaned);
+  const val = Number.parseFloat(cleaned);
   return Number.isNaN(val) || val <= 0 || val > maxPrice ? null : val;
 }
 

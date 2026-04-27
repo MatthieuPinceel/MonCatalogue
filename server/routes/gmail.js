@@ -195,7 +195,7 @@ router.post('/scan', async (req, res) => {
   }
 
   try {
-    const days    = Math.min(Math.max(Number.Number.parseInt(req.body.days || req.query.days || 7, 10), 1), 30);
+    const days    = Math.min(Math.max(Number.parseInt(req.body.days || req.query.days || 7, 10), 1), 30);
     const results = await scanPromoEmails(days);
     res.json(results);
   } catch (err) {
@@ -434,7 +434,7 @@ function extractPromosFromText(text) {
     add({ type: 'discount_pct', min: Number.parseInt(m[1], 10), max: m[2] ? Number.parseInt(m[2], 10) : null });
   }
   while ((m = pricePattern.exec(text)) !== null) {
-    add({ type: 'price', sale: Number.Number.parseFloat(m[1].replace(',','.')), original: Number.Number.parseFloat(m[2].replace(',','.')) });
+    add({ type: 'price', sale: Number.parseFloat(m[1].replace(',','.')), original: Number.parseFloat(m[2].replace(',','.')) });
   }
   while ((m = veepeePattern.exec(text)) !== null) {
     add({ type: 'brand_sale', brand: m[1].trim() });
