@@ -23,7 +23,7 @@ async function withChromiumPage(fn) {
   return withPage(fn);
 }
 
-const DELAY = parseInt(process.env.SCRAPE_DELAY_MS || '1500', 10);
+const DELAY = Number.Number.parseInt(process.env.SCRAPE_DELAY_MS || '1500', 10);
 const UA    = process.env.SCRAPE_USER_AGENT ||
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
@@ -52,9 +52,9 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function normalizePrice(str, maxPrice = 500) {
   if (!str) return null;
-  const cleaned = String(str).replace(/\s/g, '').replace(/[^\d,\.]/g, '').replace(',', '.').trim();
-  const val = parseFloat(cleaned);
-  return isNaN(val) || val <= 0 || val > maxPrice ? null : val;
+  const cleaned = String(str).replace(/\s/g, '').replaceAll(/[^\d,.]/g, '').replace(',', '.').trim();
+  const val = Number.Number.parseFloat(cleaned);
+  return Number.isNaN(val) || val <= 0 || val > maxPrice ? null : val;
 }
 
 function calcDiscount(original, sale) {
@@ -348,8 +348,8 @@ async function scrapeIdealoPage(url, category, itemType = 'catalog') {
 // DEALABS — flux RSS (pas de scraping, XML public)
 // ---------------------------------------------------------------
 function extractPricesFromText(text) {
-  const matches = [...text.matchAll(/(\d+[,\.]\d{1,2})\s*€/g)]
-    .map(m => parseFloat(m[1].replace(',', '.')))
+  const matches = [...text.matchAll(/(\d+[,.]\d{1,2})\s*€/g)]
+    .map(m => Number.parseFloat(m[1].replace(',', '.')))
     .filter(v => v > 0 && v < 1500);
   if (!matches.length) return { price: null, original_price: null };
   if (matches.length === 1) return { price: matches[0], original_price: null };
@@ -535,7 +535,7 @@ async function scrapeBcdJeuxPage(url, category, itemType = 'catalog') {
         let discountPct = calcDiscount(priceOld, priceNew);
         if (!discountPct && item.discount) {
           const m = item.discount.match(/(\d+)\s*%/);
-          if (m) discountPct = parseInt(m[1], 10);
+          if (m) discountPct = Number.parseInt(m[1], 10);
         }
 
         return {
@@ -1064,7 +1064,7 @@ const CATALOG_SCRAPERS = {
 };
 
 async function scrapeAll(only) {
-  const keys = only && only.length ? only : Object.keys(SCRAPERS);
+  const keys = only?.length ? only : Object.keys(SCRAPERS);
   const all  = [];
   for (const key of keys) {
     if (!SCRAPERS[key]) { logger.warn(`[Scraper] Scraper inconnu : "${key}"`); continue; }
@@ -1076,7 +1076,7 @@ async function scrapeAll(only) {
 }
 
 async function scrapeAllCatalog(only) {
-  const keys = only && only.length ? only : Object.keys(CATALOG_SCRAPERS);
+  const keys = only?.length ? only : Object.keys(CATALOG_SCRAPERS);
   const all  = [];
   for (const key of keys) {
     if (!CATALOG_SCRAPERS[key]) { logger.warn(`[Scraper] Catalogue inconnu : "${key}"`); continue; }
