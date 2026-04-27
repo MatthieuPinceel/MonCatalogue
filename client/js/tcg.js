@@ -145,8 +145,8 @@ document.getElementById('addCardBtn').addEventListener('click', () => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const body = Object.fromEntries(fd);
-    body.quantity  = parseInt(body.quantity, 10);
-    body.price_paid = body.price_paid ? parseFloat(body.price_paid) : null;
+    body.quantity  = Number.parseInt(body.quantity, 10);
+    body.price_paid = body.price_paid ? Number.parseFloat(body.price_paid) : null;
     try {
       await API.post('/tcg/collection', body);
       toast('Carte ajoutée !', 'success');
@@ -189,7 +189,7 @@ document.getElementById('searchCardBtn').addEventListener('click', async () => {
     }
 
     container.innerHTML = cards.slice(0, 40).map(c => `
-      <div class="tcg-card" onclick="quickAddCard('${escHtml(game)}','${escHtml(c.id).replace(/'/g,"\\'")}','${escHtml(c.name).replace(/'/g,"\\'")}','${escHtml(c.set||'').replace(/'/g,"\\'")}','${escHtml(c.rarity||'').replace(/'/g,"\\'")}')">
+      <div class="tcg-card" onclick="quickAddCard('${escHtml(game)}','${escHtml(c.id).replaceAll("'","\\'")}','${escHtml(c.name).replaceAll("'","\\'")}','${escHtml(c.set||'').replaceAll("'","\\'")}','${escHtml(c.rarity||'').replaceAll("'","\\'")}')">
         ${c.image ? `<img src="${escHtml(c.image)}" alt="${escHtml(c.name)}" loading="lazy" />` : '<div style="height:120px;background:var(--bg-hover);display:flex;align-items:center;justify-content:center;font-size:2rem">🃏</div>'}
         <div class="tcg-card-body">
           <div class="tcg-card-name">${escHtml(c.name)}</div>
@@ -256,8 +256,8 @@ window.addEventListener('pagechange', (e) => {
 });
 
 // Exporter globalement
-window.deleteCard   = deleteCard;
-window.quickAddCard = quickAddCard;
+globalThis.deleteCard   = deleteCard;
+globalThis.quickAddCard = quickAddCard;
 
 // ================================================================
 // WISHLIST TCG
@@ -335,6 +335,8 @@ function renderWishlist(items) {
   }).join('');
 }
 
+function sel(cond) { return cond ? 'selected' : ''; }
+
 function showWishlistModal(existing = null) {
   const s = existing || {};
   Modal.open(existing ? 'Modifier' : 'Ajouter à la wishlist TCG', `
@@ -343,26 +345,26 @@ function showWishlistModal(existing = null) {
         <div class="form-group">
           <label class="form-label">Jeu *</label>
           <select name="game" class="select">
-            <option value="pokemon"   ${s.game==='pokemon'  ?'selected':''}>Pokémon</option>
-            <option value="lorcana"   ${s.game==='lorcana'  ?'selected':''}>Lorcana</option>
-            <option value="magic"     ${s.game==='magic'    ?'selected':''}>Magic</option>
-            <option value="one_piece" ${s.game==='one_piece'?'selected':''}>One Piece</option>
-            <option value="autre"     ${s.game==='autre'    ?'selected':''}>Autre</option>
+            <option value="pokemon"   ${sel(s.game==='pokemon')}>Pokémon</option>
+            <option value="lorcana"   ${sel(s.game==='lorcana')}>Lorcana</option>
+            <option value="magic"     ${sel(s.game==='magic')}>Magic</option>
+            <option value="one_piece" ${sel(s.game==='one_piece')}>One Piece</option>
+            <option value="autre"     ${sel(s.game==='autre')}>Autre</option>
           </select>
         </div>
         <div class="form-group">
           <label class="form-label">Type *</label>
           <select name="product_type" class="select">
-            <option value="booster"  ${s.product_type==='booster' ?'selected':''}>📦 Booster</option>
-            <option value="display"  ${s.product_type==='display' ?'selected':''}>📦 Display / Booster Box</option>
-            <option value="etb"      ${s.product_type==='etb'     ?'selected':''}>🎁 ETB (Elite Trainer Box)</option>
-            <option value="coffret"  ${s.product_type==='coffret' ?'selected':''}>🎁 Coffret</option>
-            <option value="tin"      ${s.product_type==='tin'     ?'selected':''}>📦 Tin</option>
-            <option value="blister"  ${s.product_type==='blister' ?'selected':''}>📦 Blister</option>
-            <option value="bundle"   ${s.product_type==='bundle'  ?'selected':''}>🎁 Bundle</option>
-            <option value="deck"     ${s.product_type==='deck'    ?'selected':''}>🗂 Deck / Starter</option>
-            <option value="carte"    ${s.product_type==='carte'   ?'selected':''}>🃏 Carte</option>
-            <option value="autre"    ${s.product_type==='autre'   ?'selected':''}>Autre</option>
+            <option value="booster"  ${sel(s.product_type==='booster')}>📦 Booster</option>
+            <option value="display"  ${sel(s.product_type==='display')}>📦 Display / Booster Box</option>
+            <option value="etb"      ${sel(s.product_type==='etb')}>🎁 ETB (Elite Trainer Box)</option>
+            <option value="coffret"  ${sel(s.product_type==='coffret')}>🎁 Coffret</option>
+            <option value="tin"      ${sel(s.product_type==='tin')}>📦 Tin</option>
+            <option value="blister"  ${sel(s.product_type==='blister')}>📦 Blister</option>
+            <option value="bundle"   ${sel(s.product_type==='bundle')}>🎁 Bundle</option>
+            <option value="deck"     ${sel(s.product_type==='deck')}>🗂 Deck / Starter</option>
+            <option value="carte"    ${sel(s.product_type==='carte')}>🃏 Carte</option>
+            <option value="autre"    ${sel(s.product_type==='autre')}>Autre</option>
           </select>
         </div>
       </div>
@@ -394,7 +396,7 @@ function showWishlistModal(existing = null) {
   document.getElementById('wishlistForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const body = Object.fromEntries(new FormData(e.target));
-    if (body.target_price) body.target_price = parseFloat(body.target_price);
+    if (body.target_price) body.target_price = Number.parseFloat(body.target_price);
     try {
       if (existing) {
         await API.put(`/tcg/wishlist/${existing.id}`, body);
@@ -437,5 +439,5 @@ document.getElementById('wishlistGameFilter').addEventListener('change', loadWis
 document.getElementById('refreshWishlistPricesBtn').addEventListener('click', loadWishlist);
 document.querySelector('[data-tab="tcg-wishlist"]').addEventListener('click', loadWishlist);
 
-window.editWishlistItem   = editWishlistItem;
-window.deleteWishlistItem = deleteWishlistItem;
+globalThis.editWishlistItem   = editWishlistItem;
+globalThis.deleteWishlistItem = deleteWishlistItem;
