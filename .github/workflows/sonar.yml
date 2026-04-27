@@ -10,6 +10,7 @@ jobs:
   sonarcloud:
     name: SonarCloud
     runs-on: ubuntu-latest
+    environment: SonarQube
 
     steps:
       - name: Checkout
@@ -29,5 +30,5 @@ jobs:
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v5
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONARQUBE }}
           SONAR_HOST_URL: https://sonarcloud.io
