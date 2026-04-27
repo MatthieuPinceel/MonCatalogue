@@ -53,9 +53,9 @@ jobs:
           # Attendre que SonarCloud indexe les resultats
           sleep 120
 
-          # Requete sans branch = branche principale du projet (toutes les issues)
+          # organization= obligatoire sur SonarCloud
           curl -s -u "${SONAR_TOKEN}:" \
-            "https://sonarcloud.io/api/issues/search?componentKeys=matthieupinceel_moncatalogue&resolved=false&ps=100&s=SEVERITY&asc=false" \
+            "https://sonarcloud.io/api/issues/search?organization=matthieupinceel&componentKeys=matthieupinceel_moncatalogue&resolved=false&ps=100&s=SEVERITY&asc=false" \
             > /tmp/sonar_issues.json
 
           python3 -c "import json; d=json.load(open('/tmp/sonar_issues.json')); print('Total issues:', d.get('total',0), '| Errors:', d.get('errors',[]))"
@@ -66,7 +66,7 @@ jobs:
               data = json.load(f)
           issues = data.get('issues', [])
           total = data.get('total', 0)
-          now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+          now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
           sha = os.environ.get('COMMIT_SHA', '?')[:8]
           branch = os.environ.get('BRANCH_NAME', '?')
           lines = [
