@@ -35,9 +35,6 @@ jobs:
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
-        continue-on-error: true
-        with:
-          args: -Dsonar.qualitygate.wait=true
         env:
           SONAR_TOKEN: ${{ secrets.SONARQUBE }}
           SONAR_HOST_URL: https://sonarcloud.io
@@ -53,12 +50,15 @@ jobs:
           gh label create "sonarcloud-report" --color "0075ca" \
             --description "Rapport SonarCloud automatique" 2>/dev/null || true
 
-          ENCODED_BRANCH=$(python3 -c \
-            "import urllib.parse, os; print(urllib.parse.quote(os.environ['BRANCH_NAME']))")
+          # Attendre que SonarCloud indexe les resultats
+          sleep 120
 
+          # Requete sans branch = branche principale du projet (toutes les issues)
           curl -s -u "${SONAR_TOKEN}:" \
-            "https://sonarcloud.io/api/issues/search?componentKeys=matthieupinceel_moncatalogue&branch=${ENCODED_BRANCH}&resolved=false&ps=100&s=SEVERITY&asc=false" \
+            "https://sonarcloud.io/api/issues/search?componentKeys=matthieupinceel_moncatalogue&resolved=false&ps=100&s=SEVERITY&asc=false" \
             > /tmp/sonar_issues.json
+
+          python3 -c "import json; d=json.load(open('/tmp/sonar_issues.json')); print('Total issues:', d.get('total',0), '| Errors:', d.get('errors',[]))"
 
           cat > /tmp/format_sonar.py << 'PYEOF'
           import sys, json, datetime, os
