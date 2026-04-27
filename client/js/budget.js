@@ -186,7 +186,7 @@ document.getElementById('addPurchaseBtn').addEventListener('click', () => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const body = Object.fromEntries(fd);
-    body.amount = parseFloat(body.amount);
+    body.amount = Number.parseFloat(body.amount);
     try {
       await API.post('/budget/purchases', body);
       toast('Achat enregistré !', 'success');
@@ -256,7 +256,7 @@ document.getElementById('editLimitsBtn').addEventListener('click', async () => {
   document.getElementById('limitsForm').querySelectorAll('input').forEach(inp => {
     inp.addEventListener('input', () => {
       const total = CATEGORIES.reduce((s, c) => {
-        const v = parseFloat(document.querySelector(`[name="${c.key}"]`)?.value || 0);
+        const v = Number.parseFloat(document.querySelector(`[name="${c.key}"]`)?.value || 0);
         return s + (isNaN(v) ? 0 : v);
       }, 0);
       document.getElementById('limitsTotalVal').textContent = formatPrice(total);
@@ -267,7 +267,7 @@ document.getElementById('editLimitsBtn').addEventListener('click', async () => {
     e.preventDefault();
     try {
       await Promise.all(CATEGORIES.map(c => {
-        const val = parseFloat(document.querySelector(`[name="${c.key}"]`).value || 0);
+        const val = Number.parseFloat(document.querySelector(`[name="${c.key}"]`).value || 0);
         return API.put(`/budget/limits/${c.key}`, { monthly_limit: val });
       }));
       toast('Budgets mis à jour !', 'success');
@@ -297,7 +297,7 @@ function editCategoryLimit(category, currentLimit) {
   `);
   document.getElementById('oneLimitForm').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const val = parseFloat(e.target.monthly_limit.value);
+    const val = Number.parseFloat(e.target.monthly_limit.value);
     try {
       await API.put(`/budget/limits/${category}`, { monthly_limit: val });
       toast(`Budget ${label} mis à jour !`, 'success');

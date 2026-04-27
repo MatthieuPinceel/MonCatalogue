@@ -16,8 +16,8 @@ router.get('/', (req, res) => {
   try {
     const db = getDb();
     const { source, category, item_type, sort, promo_only, q, limit = 50, offset = 0 } = req.query;
-    const safeLimit  = Math.min(Math.max(Number.Number.parseInt(limit,  10) || 50,  1), 200);
-    const safeOffset = Math.max(Number.Number.parseInt(offset, 10) || 0, 0);
+    const safeLimit  = Math.min(Math.max(Number.parseInt(limit,  10) || 50,  1), 200);
+    const safeOffset = Math.max(Number.parseInt(offset, 10) || 0, 0);
 
     let sql    = 'SELECT * FROM promos WHERE 1=1';
     const args = [];
@@ -53,7 +53,7 @@ router.get('/', (req, res) => {
     if (q)         { countSql += ' AND title LIKE ? COLLATE NOCASE'; countArgs.push(`%${q}%`); }
     const { total } = db.prepare(countSql).get(...countArgs);
 
-    res.json({ total, limit: Number.Number.parseInt(limit, 10), offset: Number.Number.parseInt(offset, 10), data: rows });
+    res.json({ total, limit: Number.parseInt(limit, 10), offset: Number.parseInt(offset, 10), data: rows });
   } catch (err) {
     logger.error(`[/api/promos GET] ${err.message}`);
     res.status(500).json({ error: err.message });

@@ -47,8 +47,8 @@ async function sendEmail({ to, subject, html, text }) {
     ];
     const raw = Buffer.from(messageParts.join('\n'))
       .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
+      .replaceAll('+', '-')
+      .replaceAll('/', '_')
       .replace(/=+$/, '');
 
     const res = await gmail.users.messages.send({

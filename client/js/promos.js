@@ -67,7 +67,7 @@ function buildPromoCard(item) {
         </div>
         <div style="margin-top:.5rem;display:flex;gap:.4rem;flex-wrap:wrap">
           <button class="btn btn-secondary" style="font-size:.75rem;padding:.2rem .6rem"
-            onclick="analyzePromoItem(${item.id}, '${escHtml(item.title).replace(/'/g, "\\'")}')">
+            onclick="analyzePromoItem(${item.id}, '${escHtml(item.title).replaceAll("'", "\\'")}')">
             🤖 Analyser
           </button>
           <a class="btn btn-secondary" style="font-size:.75rem;padding:.2rem .6rem;text-decoration:none"
@@ -159,7 +159,7 @@ function renderPagination(total, offset, limit) {
   container.innerHTML = html;
 
   container.querySelectorAll('.page-btn').forEach(btn => {
-    btn.addEventListener('click', () => { promoPage = parseInt(btn.dataset.p, 10); loadPromos(); });
+    btn.addEventListener('click', () => { promoPage = Number.parseInt(btn.dataset.p, 10); loadPromos(); });
   });
 }
 

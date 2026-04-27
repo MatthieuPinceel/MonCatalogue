@@ -150,7 +150,7 @@ function formatDate(str) {
   return new Date(str).toLocaleDateString('fr-FR');
 }
 function escHtml(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s || '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
 }
 
 // ─── Démarrage ────────────────────────────────────────────────

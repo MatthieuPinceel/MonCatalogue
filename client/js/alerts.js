@@ -126,7 +126,7 @@ document.getElementById('addAlertBtn').addEventListener('click', () => {
     e.preventDefault();
     const fd = new FormData(e.target);
     const body = Object.fromEntries(fd);
-    body.threshold_price = parseFloat(body.threshold_price);
+    body.threshold_price = Number.parseFloat(body.threshold_price);
     try {
       await API.post('/alerts', body);
       toast('Alerte créée !', 'success');
