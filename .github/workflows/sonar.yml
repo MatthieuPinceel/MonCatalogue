@@ -55,15 +55,8 @@ jobs:
           # Attendre que SonarCloud indexe les resultats
           sleep 120
 
-          # Debug : lister les projets reels dans l'org pour trouver le bon key
-          echo "=== Projets SonarCloud ==="
           curl -s -u "${SONAR_TOKEN}:" \
-            "https://sonarcloud.io/api/components/search?organization=matthieupinceel&qualifiers=TRK" \
-            | python3 -c "import json,sys; d=json.load(sys.stdin); [print('KEY:', c['key'], '| NAME:', c['name']) for c in d.get('components',[])]"
-
-          # Interroge la branche main
-          curl -s -u "${SONAR_TOKEN}:" \
-            "https://sonarcloud.io/api/issues/search?organization=matthieupinceel&componentKeys=matthieupinceel_moncatalogue&resolved=false&ps=100&s=SEVERITY&asc=false" \
+            "https://sonarcloud.io/api/issues/search?organization=matthieupinceel&componentKeys=MatthieuPinceel_MonCatalogue&resolved=false&ps=100&s=SEVERITY&asc=false" \
             > /tmp/sonar_issues.json
 
           python3 -c "import json; d=json.load(open('/tmp/sonar_issues.json')); print('Total issues:', d.get('total',0), '| Errors:', d.get('errors',[]))"
