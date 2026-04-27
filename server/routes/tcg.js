@@ -75,7 +75,7 @@ router.get('/pokemon/cards', async (req, res) => {
   try {
     let q = '';
     if (set)  q += `set.id:${set} `;
-    if (name) q += `name:"${name.replace(/"/g, '\\"')}"`;
+    if (name) q += `name:"${name.replaceAll('"', '\\"')}"`;
     const qs = new URLSearchParams({ page, pageSize: 36, orderBy: 'number' });
     if (q.trim()) qs.set('q', q.trim());
 
@@ -244,7 +244,7 @@ router.get('/export', (req, res) => {
     const csv    = rows.map(r =>
       [r.game, r.card_id, r.set_id, r.set_name, r.card_name, r.rarity,
        r.condition, r.quantity, r.price_paid, r.market_price, r.notes || '']
-        .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
+        .map(v => `"${String(v || '').replaceAll('"', '""')}"`)
         .join(',')
     ).join('\n');
 
