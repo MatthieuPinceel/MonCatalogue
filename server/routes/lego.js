@@ -15,7 +15,7 @@ const rbHttp = axios.create({ timeout: 10000, baseURL: 'https://rebrickable.com/
  */
 router.get('/lookup/:setNumber', async (req, res) => {
   if (!REBRICKABLE_KEY) return res.status(503).json({ error: 'REBRICKABLE_API_KEY non configurée' });
-  const num = req.params.setNumber.replace(/[^0-9\-]/g, '');
+  const num = req.params.setNumber.replaceAll(/[^0-9-]/g, '');
   const setId = num.includes('-') ? num : `${num}-1`;
   try {
     const { data } = await rbHttp.get(`/sets/${setId}/`, {
