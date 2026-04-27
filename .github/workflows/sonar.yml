@@ -14,6 +14,9 @@ jobs:
     name: SonarCloud
     runs-on: ubuntu-latest
     environment: SonarQube
+    permissions:
+      issues: write
+      contents: read
 
     steps:
       - name: Checkout
@@ -35,3 +38,73 @@ jobs:
         env:
           SONAR_TOKEN: ${{ secrets.SONARQUBE }}
           SONAR_HOST_URL: https://sonarcloud.io
+
+      - name: Post issues to GitHub Issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SONAR_TOKEN: ${{ secrets.SONARQUBE }}
+          COMMIT_SHA: ${{ github.sha }}
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          gh label create "sonarcloud-report" --color "0075ca" \
+            --description "Rapport SonarCloud automatique" 2>/dev/null || true
+
+          # Attendre que le Compute Engine SonarCloud finisse de traiter
+          sleep 45
+
+          ISSUES=$(curl -s -u "${SONAR_TOKEN}:" \
+            "https://sonarcloud.io/api/issues/search?componentKeys=matthieupinceel_moncatalogue&resolved=false&severities=BLOCKER,CRITICAL,MAJOR,MINOR&ps=100&s=SEVERITY&asc=false")
+
+          BODY=$(echo "$ISSUES" | \
+            COMMIT_SHA="$COMMIT_SHA" BRANCH_NAME="$BRANCH_NAME" python3 -c "
+import sys, json, datetime, os
+data = json.load(sys.stdin)
+issues = data.get('issues', [])
+total = data.get('total', 0)
+now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')
+sha = os.environ.get('COMMIT_SHA','?')[:8]
+branch = os.environ.get('BRANCH_NAME','?')
+lines = [
+    f'## Rapport SonarCloud — {now}',
+    f'**Branche :** \`{branch}\` | **Commit :** \`{sha}\`',
+    f'**{total} issue(s) non résolu(s)**',
+    ''
+]
+sev_order = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR']
+by_sev = {}
+for i in issues:
+    s = i.get('severity', '?')
+    by_sev.setdefault(s, []).append(i)
+emojis = {'BLOCKER': '🔴', 'CRITICAL': '🟠', 'MAJOR': '🟡', 'MINOR': '🔵'}
+for sev in sev_order:
+    grp = by_sev.get(sev, [])
+    if not grp:
+        continue
+    lines.append(f'### {emojis.get(sev, \"•\")} {sev} ({len(grp)})')
+    for i in grp:
+        comp = i.get('component', '').split(':')[-1]
+        line_num = i.get('line', '?')
+        msg = i.get('message', '')
+        rule = i.get('rule', '')
+        lines.append(f'- \`{comp}:{line_num}\` — {msg} (\`{rule}\`)')
+    lines.append('')
+if not any(by_sev.get(s) for s in sev_order):
+    lines.append('✅ Aucun problème détecté !')
+lines.append('> _Fermer cette issue une fois les corrections appliquées_')
+print('\n'.join(lines))
+")
+
+          EXISTING=$(gh issue list --label "sonarcloud-report" \
+            --state open --json number --jq '.[0].number' 2>/dev/null)
+
+          if [ -n "$EXISTING" ]; then
+            gh issue edit "$EXISTING" --body "$BODY"
+            echo "Issue #$EXISTING mise à jour"
+          else
+            gh issue create \
+              --title "SonarCloud Report" \
+              --body "$BODY" \
+              --label "sonarcloud-report"
+            echo "Issue créée"
+          fi
