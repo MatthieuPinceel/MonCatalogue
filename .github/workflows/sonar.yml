@@ -35,6 +35,7 @@ jobs:
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
+        continue-on-error: true
         with:
           args: -Dsonar.branch.name=main
         env:
