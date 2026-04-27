@@ -824,13 +824,16 @@ async function scrapeCultura() {
 // ---------------------------------------------------------------
 // SHOPIFY — API JSON publique /products.json (sans Chromium)
 // ---------------------------------------------------------------
-async function scrapeShopifyJson(host, keywords, sourceName, category = 'TCG', itemType = 'catalog', maxPages = 2) {
+async function scrapeShopifyJson(host, keywords, sourceName, category = 'TCG', itemType = 'catalog', maxPages = 2, collectionPath = null) {
   const results = [];
   const kw = keywords.map(k => k.toLowerCase());
   for (let page = 1; page <= maxPages; page++) {
     try {
       await sleep(DELAY);
-      const url = `https://${host}/products.json?limit=250&page=${page}`;
+      const base = collectionPath
+        ? `https://${host}/${collectionPath}/products.json`
+        : `https://${host}/products.json`;
+      const url = `${base}?limit=250&page=${page}`;
       const { data } = await makeHttp(`https://${host}/`).get(url, { headers: { Accept: 'application/json' } });
       const products = data.products || [];
       if (!products.length) break;
@@ -938,6 +941,34 @@ async function scrapeWooPage(url, sourceName, host, category = 'TCG', itemType =
 }
 
 // ---------------------------------------------------------------
+// Helpers de pagination
+// ---------------------------------------------------------------
+async function scrapeWooPaginated(baseUrl, sourceName, host, category = 'TCG', itemType = 'catalog', maxPages = 3) {
+  const all = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const url = page === 1 ? baseUrl : `${baseUrl.replace(/\/?$/, '')}/page/${page}/`;
+    const items = await scrapeWooPage(url, sourceName, host, category, itemType);
+    all.push(...items);
+    if (items.length < 5) break;
+    await sleep(DELAY);
+  }
+  return all;
+}
+
+async function scrapePrestaPagePaginated(baseUrl, sourceName, host, category = 'TCG', itemType = 'catalog', maxPages = 3, pageParam = 'p') {
+  const all = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const sep = baseUrl.includes('?') ? '&' : '?';
+    const url = page === 1 ? baseUrl : `${baseUrl}${sep}${pageParam}=${page}`;
+    const items = await scrapePrestaPage(url, sourceName, host, category, itemType);
+    all.push(...items);
+    if (items.length < 5) break;
+    await sleep(DELAY);
+  }
+  return all;
+}
+
+// ---------------------------------------------------------------
 // Utilitaires
 // ---------------------------------------------------------------
 const CATEGORY_PATTERNS = [
@@ -962,8 +993,9 @@ const SCRAPERS = {
   kingjouet:              scrapeKingJouet,
   'kingjouet-promo-lego': () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/promotions/marque-lego/page1.htm', 'Lego', 'promo'),
   'kingjouet-promo-js':   () => scrapeKingJouetPaginated('https://www.king-jouet.com/jeux-jouets/jeux-de-societe-promotion/page1.htm', 'JeuxSociete', 'promo'),
-  // Micromania — désactivé (ECONNRESET, site bloque les scrapers)
-  // micromania:          scrapeMicromania,
+  // Micromania utilise Gmail parser à la place (newsletter déjà reçue)
+  // Fallback HTML désactivé (ECONNRESET — anti-bot actif) :
+  // micromania: scrapeMicromania,
   // Smyths — pages promos confirmées
   'smyths-promo':         () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/mega-promos/c/mega-promos',                    null,          'promo'),
   'smyths-soldes':        () => scrapeSmythsPaginated('https://www.smythstoys.com/fr/fr-fr/jouets/soldes/c/soldes',                               null,          'promo'),
@@ -1007,9 +1039,12 @@ const CATALOG_SCRAPERS = {
   'philibert-lorcana':   () => scrapePhilibertPage('https://www.philibertnet.com/fr/15880-lorcana',      'TCG',        'catalog'),
   'philibert-tcg':       () => scrapePhilibertPage('https://www.philibertnet.com/fr/119-jeux-de-cartes', 'TCG',        'catalog'),
   'philibert-js':        () => scrapePhilibertPage('https://www.philibertnet.com/fr/50-jeux-de-societe', 'JeuxSociete','catalog'),
-  // Micromania — désactivé (ECONNRESET, site bloque les scrapers)
-  // 'micromania-pokemon': () => scrapeMicromaniaPage(...),
-  // 'micromania-lorcana': () => scrapeMicromaniaPage(...),
+  // Micromania utilise Gmail parser à la place (newsletter déjà reçue)
+  // Fallback HTML désactivé (ECONNRESET — anti-bot actif). URLs correctes si besoin :
+  // 'micromania-catalog': () => scrapeMicromaniaPage('https://www.micromania.fr/c/cartes',                     'TCG',      'catalog'),
+  // 'micromania-pokemon': () => scrapeMicromaniaPage('https://www.micromania.fr/cartes-pokemon.html',          'TCG',      'catalog'),
+  // 'micromania-lorcana': () => scrapeMicromaniaPage('https://www.micromania.fr/universe?licence=LORCANA',     'TCG',      'catalog'),
+  // 'micromania-promo':   () => scrapeMicromaniaPage('https://www.micromania.fr/promotions',                   null,       'promo'),
   // Fnac — catalogue Chromium
   'fnac-pokemon-cat':    () => scrapeFnacPage('https://www.fnac.com/Carte-Pokemon/ia8454014/w-4', 'TCG',  'catalog'),
   'fnac-lorcana-cat':    () => scrapeFnacPage('https://www.fnac.com/Carte-Lorcana/ia8527699/w-4', 'TCG',  'catalog'),
@@ -1033,18 +1068,37 @@ const CATALOG_SCRAPERS = {
 
   // ── Boutiques spécialisées TCG ─────────────────────────────────
   // Shopify — API /products.json publique, pas de Chromium
-  'lorenzone-tcg':       () => scrapeShopifyJson('www.lorenzone.fr',          ['pokemon','lorcana','magic'], 'lorenzone',    'TCG', 'catalog'),
+  // Lorenzone — Shopify collections spécifiques (remplace ludiworld, plus précis)
+  'lorenzone-pokemon':   () => scrapeShopifyJson('lorenzone.fr', [], 'lorenzone', 'TCG', 'catalog', 3, 'collections/pokemon'),
+  'lorenzone-lorcana':   () => scrapeShopifyJson('lorenzone.fr', [], 'lorenzone', 'TCG', 'catalog', 3, 'collections/lorcana'),
   'relictcg-tcg':        () => scrapeShopifyJson('www.relictcg.com',           ['pokemon','lorcana','magic'], 'relictcg',     'TCG', 'catalog'),
   'kairyu-pokemon':      () => scrapeShopifyJson('www.kairyu.fr',              ['pokemon'],                   'kairyu',       'TCG', 'catalog'),
   'pokestation-pokemon': () => scrapeShopifyJson('www.pokestation.fr',         ['pokemon'],                   'pokestation',  'TCG', 'catalog'),
-  // pokemoms-tcg — désactivé (Shopify 404)
-  // pokuji-tcg    — désactivé (Shopify 404)
-  // ultrajeux-tcg — désactivé (PrestaShop 404)
-  // destocktcg-tcg — désactivé (PrestaShop 404)
-  // ludiworld-tcg — désactivé (PrestaShop 404)
+  // Pokemoms — WooCommerce (pas Shopify)
+  'pokemoms-pokemon':    () => scrapeWooPaginated('https://pokemoms.fr/categorie-produit/pokemon/',                                    'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
+  'pokemoms-coffrets':   () => scrapeWooPaginated('https://pokemoms.fr/categorie-produit/pokemon/coffrets-boosters/',                  'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
+  'pokemoms-lorcana':    () => scrapeWooPaginated('https://pokemoms.fr/categorie-produit/lorcana-tcg/',                                'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
+  'pokemoms-boutique':   () => scrapeWooPaginated('https://pokemoms.fr/boutique-2/',                                                   'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
+  // Pokuji — WooCommerce (pas Shopify)
+  'pokuji-pokemon':           () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/pokemon-francais/',              'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
+  'pokuji-lorcana':           () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/',              'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
+  'pokuji-lorcana-display':   () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/displays-lorcana/',  'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
+  'pokuji-lorcana-coffrets':  () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/coffrets-lorcana/', 'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
+  // Ultrajeux — PrestaShop (URLs de catégories, pas de recherche)
+  'ultrajeux-pokemon':        () => scrapePrestaPagePaginated('https://www.ultrajeux.com/jeu-4-pokemon.html',                          'ultrajeux', 'www.ultrajeux.com', 'TCG', 'catalog', 3, 'p'),
+  'ultrajeux-pokemon-cartes': () => scrapePrestaPagePaginated('https://www.ultrajeux.com/cat-1-4-cartes-a-collectionner-pokemon.html', 'ultrajeux', 'www.ultrajeux.com', 'TCG', 'catalog', 3, 'p'),
+  'ultrajeux-lorcana':        () => scrapePrestaPagePaginated('https://www.ultrajeux.com/cat-0-1033-cartes-a-collectionner-lorcana.html', 'ultrajeux', 'www.ultrajeux.com', 'TCG', 'catalog', 3, 'p'),
+  // Destocktcg — PrestaShop (URLs de catégories, pas de recherche)
+  'destocktcg-pokemon':          () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/pokemon/',                              'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
+  'destocktcg-pokemon-boosters': () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/pokemon/booster-et-boite-de-boosters/', 'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
+  'destocktcg-lorcana':          () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/disney-lorcana/',                       'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
+  'destocktcg-tcg-global':       () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/',                                      'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
   'hikaru-tcg':          () => scrapeShopifyJson('www.hikarudistribution.com', ['pokemon'],                   'hikaru',       'TCG', 'catalog'),
   'dracaugames-tcg':     () => scrapeShopifyJson('www.dracaugames.com',        ['pokemon','lorcana','magic'], 'dracaugames',  'TCG', 'catalog'),
-  // lecoindesbarons-tcg — désactivé (WooCommerce search retourne 0 résultats)
+  // Lecoindesbarons — WooCommerce catégories directes (la recherche retournait 0)
+  'lecoindesbarons-pokemon': () => scrapeWooPaginated('https://lecoindesbarons.com/les-tcg/cartes-pokemon/',                'lecoindesbarons', 'lecoindesbarons.com', 'TCG', 'catalog'),
+  'lecoindesbarons-lorcana': () => scrapeWooPaginated('https://lecoindesbarons.com/les-tcg/cartes-lorcana/',                'lecoindesbarons', 'lecoindesbarons.com', 'TCG', 'catalog'),
+  'lecoindesbarons-display': () => scrapeWooPaginated('https://lecoindesbarons.com/les-tcg/cartes-pokemon/display-pokemon/', 'lecoindesbarons', 'lecoindesbarons.com', 'TCG', 'catalog'),
 };
 
 async function scrapeAll(only) {
