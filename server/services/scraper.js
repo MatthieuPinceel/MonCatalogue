@@ -969,8 +969,182 @@ async function scrapePrestaPagePaginated(baseUrl, sourceName, host, category = '
 }
 
 // ---------------------------------------------------------------
-// Utilitaires
+// WooCommerce — Chromium (sites protégés Cloudflare)
 // ---------------------------------------------------------------
+async function scrapeWooChromiumPage(url, sourceName, category = 'TCG', itemType = 'catalog') {
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/WooCommerce/${sourceName}] (${itemType}) — ${url}`);
+  try {
+    return await withChromiumPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector('ul.products li.product, .products .product', { timeout: 15000 }).catch(() => {});
+      await new Promise(r => setTimeout(r, 2000));
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        document.querySelectorAll('ul.products li.product, .products .product').forEach(el => {
+          const title = (
+            el.querySelector('.woocommerce-loop-product__title, h2, h3')?.innerText?.trim() || ''
+          );
+          if (!title || title.length < 3) return;
+          const salePriceEl   = el.querySelector('.price ins .amount, .price ins bdi');
+          const regularEl     = el.querySelector('.price bdi, .price .amount');
+          const oldPriceEl    = el.querySelector('.price del .amount, .price del bdi');
+          const priceNew = salePriceEl?.innerText?.trim() || regularEl?.innerText?.trim() || '';
+          const priceOld = oldPriceEl?.innerText?.trim() || '';
+          const link  = el.querySelector('a.woocommerce-loop-product__link, a')?.href || '';
+          const image = el.querySelector('img')?.src || el.querySelector('img')?.dataset?.src || '';
+          results.push({ title, priceNew, priceOld, link, image });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const priceNew = normalizePrice(item.priceNew, maxPrice);
+        const priceOld = normalizePrice(item.priceOld, maxPrice);
+        const price    = priceNew || priceOld;
+        if (!price) return null;
+        return {
+          source: sourceName, title: item.title, price,
+          original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
+          discount_percent: calcDiscount(priceOld, priceNew),
+          url: item.link || url, image_url: item.image || null,
+          category: guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/WooCommerce/${sourceName}] erreur sur ${url} : ${err.message}`);
+    return [];
+  }
+}
+
+async function scrapeWooChromiumPaginated(baseUrl, sourceName, category = 'TCG', itemType = 'catalog', maxPages = 3) {
+  const all = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const url = page === 1 ? baseUrl : `${baseUrl.replace(/\/?$/, '')}/page/${page}/`;
+    const items = await scrapeWooChromiumPage(url, sourceName, category, itemType);
+    all.push(...items);
+    if (items.length < 5) break;
+    await sleep(2000);
+  }
+  return all;
+}
+
+// ---------------------------------------------------------------
+// PrestaShop — Chromium (sites protégés Cloudflare)
+// ---------------------------------------------------------------
+async function scrapePrestaChromiumPage(url, sourceName, category = 'TCG', itemType = 'catalog') {
+  const maxPrice = itemType === 'catalog' ? 1500 : 500;
+  logger.info(`[Chromium/PrestaShop/${sourceName}] (${itemType}) — ${url}`);
+  try {
+    return await withChromiumPage(async (page) => {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForSelector(
+        '.product-miniature, [data-id-product], #js-product-list article',
+        { timeout: 15000 }
+      ).catch(() => {});
+      await new Promise(r => setTimeout(r, 2000));
+
+      const items = await page.evaluate(() => {
+        const results = [];
+        document.querySelectorAll('.product-miniature, [data-id-product]').forEach(el => {
+          const title = (
+            el.querySelector('.product-title a, h3 a, h2 a')?.innerText?.trim() ||
+            el.querySelector('a[title]')?.title || ''
+          );
+          if (!title || title.length < 3) return;
+          const priceNew = el.querySelector('.price:not(.regular-price), .product-price')?.innerText?.trim() || '';
+          const priceOld = el.querySelector('.regular-price, s, del')?.innerText?.trim() || '';
+          const link  = el.querySelector('a')?.href || '';
+          const image = el.querySelector('img')?.src || el.querySelector('img')?.dataset?.src || '';
+          results.push({ title, priceNew, priceOld, link, image });
+        });
+        return results;
+      });
+
+      const now = new Date().toISOString();
+      return items.map(item => {
+        const priceNew = normalizePrice(item.priceNew, maxPrice);
+        const priceOld = normalizePrice(item.priceOld, maxPrice);
+        const price    = priceNew || priceOld;
+        if (!price) return null;
+        return {
+          source: sourceName, title: item.title, price,
+          original_price:   priceOld && priceNew && priceOld !== priceNew ? priceOld : null,
+          discount_percent: calcDiscount(priceOld, priceNew),
+          url: item.link || url, image_url: item.image || null,
+          category: guessCategoryFromTitle(item.title) || category,
+          item_type: itemType, scraped_at: now,
+        };
+      }).filter(Boolean);
+    });
+  } catch (err) {
+    logger.error(`[Chromium/PrestaShop/${sourceName}] erreur sur ${url} : ${err.message}`);
+    return [];
+  }
+}
+
+async function scrapePrestaChromiumPaginated(baseUrl, sourceName, category = 'TCG', itemType = 'catalog', maxPages = 3, pageParam = 'p') {
+  const all = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const sep = baseUrl.includes('?') ? '&' : '?';
+    const url = page === 1 ? baseUrl : `${baseUrl}${sep}${pageParam}=${page}`;
+    const items = await scrapePrestaChromiumPage(url, sourceName, category, itemType);
+    all.push(...items);
+    if (items.length < 5) break;
+    await sleep(2000);
+  }
+  return all;
+}
+
+// ---------------------------------------------------------------
+// Shopify JSON via Chromium (collections spécifiques bloquées par CF)
+// ---------------------------------------------------------------
+async function scrapeShopifyJsonViaChromium(jsonUrl, sourceName, category = 'TCG', itemType = 'catalog', maxPages = 3) {
+  const results = [];
+  logger.info(`[Chromium/Shopify/${sourceName}] (${itemType}) — ${jsonUrl}`);
+  for (let page = 1; page <= maxPages; page++) {
+    const sep = jsonUrl.includes('?') ? '&' : '?';
+    const url = page === 1 ? jsonUrl : `${jsonUrl}${sep}page=${page}`;
+    try {
+      const products = await withChromiumPage(async (chromePage) => {
+        const response = await chromePage.goto(url, { waitUntil: 'networkidle0', timeout: 30000 });
+        const text = await response.text();
+        return JSON.parse(text).products || [];
+      });
+      if (!products.length) break;
+      for (const p of products) {
+        const title   = p.title || '';
+        const variant = p.variants?.[0];
+        if (!variant) continue;
+        const price      = normalizePrice(String(variant.price), 1500);
+        if (!price) continue;
+        const compareAt  = variant.compare_at_price ? normalizePrice(String(variant.compare_at_price), 1500) : null;
+        const host       = new URL(url).host;
+        results.push({
+          source: sourceName, title, price,
+          original_price:   compareAt && compareAt > price ? compareAt : null,
+          discount_percent: calcDiscount(compareAt, price),
+          url:        `https://${host}/products/${p.handle}`,
+          image_url:  p.images?.[0]?.src || null,
+          category:   guessCategoryFromTitle(title) || category,
+          item_type:  itemType,
+          scraped_at: new Date().toISOString(),
+        });
+      }
+      if (products.length < 250) break;
+    } catch (err) {
+      logger.error(`[Chromium/Shopify/${sourceName}] erreur page ${page} : ${err.message}`);
+      break;
+    }
+    await sleep(2000);
+  }
+  logger.info(`[Chromium/Shopify/${sourceName}] (${itemType}) — ${results.length} articles`);
+  return results;
+}
 const CATEGORY_PATTERNS = [
   { pattern: /pokemon|lorcana|magic|yugioh|one piece|tcg|carte.a.collectionner/i, category: 'TCG' },
   { pattern: /lego|technic|duplo/i,                                               category: 'Lego' },
@@ -1068,37 +1242,37 @@ const CATALOG_SCRAPERS = {
 
   // ── Boutiques spécialisées TCG ─────────────────────────────────
   // Shopify — API /products.json publique, pas de Chromium
-  // Lorenzone — Shopify collections spécifiques (remplace ludiworld, plus précis)
-  'lorenzone-pokemon':   () => scrapeShopifyJson('lorenzone.fr', [], 'lorenzone', 'TCG', 'catalog', 3, 'collections/pokemon'),
-  'lorenzone-lorcana':   () => scrapeShopifyJson('lorenzone.fr', [], 'lorenzone', 'TCG', 'catalog', 3, 'collections/lorcana'),
+  // Lorenzone — Shopify collections via Chromium (CF bloque axios)
+  'lorenzone-pokemon':   () => scrapeShopifyJsonViaChromium('https://www.lorenzone.fr/collections/pokemon/products.json?limit=250',  'lorenzone', 'TCG', 'catalog'),
+  'lorenzone-lorcana':   () => scrapeShopifyJsonViaChromium('https://www.lorenzone.fr/collections/lorcana/products.json?limit=250',  'lorenzone', 'TCG', 'catalog'),
   'relictcg-tcg':        () => scrapeShopifyJson('www.relictcg.com',           ['pokemon','lorcana','magic'], 'relictcg',     'TCG', 'catalog'),
   'kairyu-pokemon':      () => scrapeShopifyJson('www.kairyu.fr',              ['pokemon'],                   'kairyu',       'TCG', 'catalog'),
   'pokestation-pokemon': () => scrapeShopifyJson('www.pokestation.fr',         ['pokemon'],                   'pokestation',  'TCG', 'catalog'),
-  // Pokemoms — WooCommerce (pas Shopify)
-  'pokemoms-pokemon':    () => scrapeWooPaginated('https://pokemoms.fr/categorie-produit/pokemon/',                                    'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
-  'pokemoms-coffrets':   () => scrapeWooPaginated('https://pokemoms.fr/categorie-produit/pokemon/coffrets-boosters/',                  'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
-  'pokemoms-lorcana':    () => scrapeWooPaginated('https://pokemoms.fr/categorie-produit/lorcana-tcg/',                                'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
-  'pokemoms-boutique':   () => scrapeWooPaginated('https://pokemoms.fr/boutique-2/',                                                   'pokemoms', 'pokemoms.fr',  'TCG', 'catalog'),
-  // Pokuji — WooCommerce (pas Shopify)
-  'pokuji-pokemon':           () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/pokemon-francais/',              'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
-  'pokuji-lorcana':           () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/',              'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
-  'pokuji-lorcana-display':   () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/displays-lorcana/',  'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
-  'pokuji-lorcana-coffrets':  () => scrapeWooPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/coffrets-lorcana/', 'pokuji', 'pokuji.fr', 'TCG', 'catalog'),
-  // Ultrajeux — PrestaShop (URLs de catégories, pas de recherche)
-  'ultrajeux-pokemon':        () => scrapePrestaPagePaginated('https://www.ultrajeux.com/jeu-4-pokemon.html',                          'ultrajeux', 'www.ultrajeux.com', 'TCG', 'catalog', 3, 'p'),
-  'ultrajeux-pokemon-cartes': () => scrapePrestaPagePaginated('https://www.ultrajeux.com/cat-1-4-cartes-a-collectionner-pokemon.html', 'ultrajeux', 'www.ultrajeux.com', 'TCG', 'catalog', 3, 'p'),
-  'ultrajeux-lorcana':        () => scrapePrestaPagePaginated('https://www.ultrajeux.com/cat-0-1033-cartes-a-collectionner-lorcana.html', 'ultrajeux', 'www.ultrajeux.com', 'TCG', 'catalog', 3, 'p'),
-  // Destocktcg — PrestaShop (URLs de catégories, pas de recherche)
-  'destocktcg-pokemon':          () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/pokemon/',                              'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
-  'destocktcg-pokemon-boosters': () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/pokemon/booster-et-boite-de-boosters/', 'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
-  'destocktcg-lorcana':          () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/disney-lorcana/',                       'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
-  'destocktcg-tcg-global':       () => scrapePrestaPagePaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/',                                      'destocktcg', 'www.destocktcg.fr', 'TCG', 'catalog', 3, 'page'),
+  // Pokemoms — WooCommerce via Chromium (CF bloque axios)
+  'pokemoms-pokemon':    () => scrapeWooChromiumPaginated('https://pokemoms.fr/categorie-produit/pokemon/',                                   'pokemoms', 'TCG', 'catalog'),
+  'pokemoms-coffrets':   () => scrapeWooChromiumPaginated('https://pokemoms.fr/categorie-produit/pokemon/coffrets-boosters/',                 'pokemoms', 'TCG', 'catalog'),
+  'pokemoms-lorcana':    () => scrapeWooChromiumPaginated('https://pokemoms.fr/categorie-produit/lorcana-tcg/',                               'pokemoms', 'TCG', 'catalog'),
+  'pokemoms-boutique':   () => scrapeWooChromiumPaginated('https://pokemoms.fr/boutique-2/',                                                  'pokemoms', 'TCG', 'catalog'),
+  // Pokuji — WooCommerce via Chromium (CF bloque axios)
+  'pokuji-pokemon':           () => scrapeWooChromiumPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/pokemon-francais/',             'pokuji', 'TCG', 'catalog'),
+  'pokuji-lorcana':           () => scrapeWooChromiumPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/',             'pokuji', 'TCG', 'catalog'),
+  'pokuji-lorcana-display':   () => scrapeWooChromiumPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/displays-lorcana/',  'pokuji', 'TCG', 'catalog'),
+  'pokuji-lorcana-coffrets':  () => scrapeWooChromiumPaginated('https://pokuji.fr/produits/cartes-a-collectionner-tcg/lorcana-francais/coffrets-lorcana/', 'pokuji', 'TCG', 'catalog'),
+  // Ultrajeux — PrestaShop via Chromium (CF bloque axios)
+  'ultrajeux-pokemon':        () => scrapePrestaChromiumPaginated('https://www.ultrajeux.com/jeu-4-pokemon.html',                          'ultrajeux', 'TCG', 'catalog', 3, 'p'),
+  'ultrajeux-pokemon-cartes': () => scrapePrestaChromiumPaginated('https://www.ultrajeux.com/cat-1-4-cartes-a-collectionner-pokemon.html', 'ultrajeux', 'TCG', 'catalog', 3, 'p'),
+  'ultrajeux-lorcana':        () => scrapePrestaChromiumPaginated('https://www.ultrajeux.com/cat-0-1033-cartes-a-collectionner-lorcana.html', 'ultrajeux', 'TCG', 'catalog', 3, 'p'),
+  // Destocktcg — PrestaShop via Chromium (CF bloque axios)
+  'destocktcg-pokemon':          () => scrapePrestaChromiumPaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/pokemon/',                              'destocktcg', 'TCG', 'catalog', 3, 'page'),
+  'destocktcg-pokemon-boosters': () => scrapePrestaChromiumPaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/pokemon/booster-et-boite-de-boosters/', 'destocktcg', 'TCG', 'catalog', 3, 'page'),
+  'destocktcg-lorcana':          () => scrapePrestaChromiumPaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/disney-lorcana/',                       'destocktcg', 'TCG', 'catalog', 3, 'page'),
+  'destocktcg-tcg-global':       () => scrapePrestaChromiumPaginated('https://www.destocktcg.fr/jeux-de-cartes-a-collectionner/',                                      'destocktcg', 'TCG', 'catalog', 3, 'page'),
   'hikaru-tcg':          () => scrapeShopifyJson('www.hikarudistribution.com', ['pokemon'],                   'hikaru',       'TCG', 'catalog'),
   'dracaugames-tcg':     () => scrapeShopifyJson('www.dracaugames.com',        ['pokemon','lorcana','magic'], 'dracaugames',  'TCG', 'catalog'),
-  // Lecoindesbarons — WooCommerce catégories directes (la recherche retournait 0)
-  'lecoindesbarons-pokemon': () => scrapeWooPaginated('https://lecoindesbarons.com/les-tcg/cartes-pokemon/',                'lecoindesbarons', 'lecoindesbarons.com', 'TCG', 'catalog'),
-  'lecoindesbarons-lorcana': () => scrapeWooPaginated('https://lecoindesbarons.com/les-tcg/cartes-lorcana/',                'lecoindesbarons', 'lecoindesbarons.com', 'TCG', 'catalog'),
-  'lecoindesbarons-display': () => scrapeWooPaginated('https://lecoindesbarons.com/les-tcg/cartes-pokemon/display-pokemon/', 'lecoindesbarons', 'lecoindesbarons.com', 'TCG', 'catalog'),
+  // Lecoindesbarons — WooCommerce catégories directes via Chromium (CF bloque axios)
+  'lecoindesbarons-pokemon': () => scrapeWooChromiumPaginated('https://lecoindesbarons.com/les-tcg/cartes-pokemon/',                'lecoindesbarons', 'TCG', 'catalog'),
+  'lecoindesbarons-lorcana': () => scrapeWooChromiumPaginated('https://lecoindesbarons.com/les-tcg/cartes-lorcana/',                'lecoindesbarons', 'TCG', 'catalog'),
+  'lecoindesbarons-display': () => scrapeWooChromiumPaginated('https://lecoindesbarons.com/les-tcg/cartes-pokemon/display-pokemon/', 'lecoindesbarons', 'TCG', 'catalog'),
 };
 
 async function scrapeAll(only) {

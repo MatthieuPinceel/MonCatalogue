@@ -13,6 +13,7 @@ const LAUNCH_ARGS = [
   '--no-first-run',
   '--no-zygote',
   '--disable-gpu',
+  '--disable-quic',
   '--disable-blink-features=AutomationControlled',
   '--disable-features=IsolateOrigins,site-per-process',
   '--window-size=1920,1080',
